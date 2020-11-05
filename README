@@ -54,7 +54,7 @@
     install_machine_username: "遠端主機的 username"
     install_machine_ip_address: "遠端主機的 ip address"
     nfs_server_ip_address: "nfs server 的 ip"
-    nfs_folder_path: "要 mount nfs server 上的資料夾路徑"
+    nfs_server_folder_path: "nfs server 上要被 mount 的資料夾路徑"
     ```
 
 * 開始佈署 Cuju 在遠端主機

@@ -4,7 +4,7 @@
     - install_machine_username: "user"
     - install_machine_ip_address: "192.168.77.151"
     - nfs_server_ip_address: "192.168.77.155"
-    - nfs_folder_path: "/home/cujuft/nfsfolder_test"
+    - nfs_server_folder_path: "/home/cujuft/nfsfolder_test"
   tasks:
     - name: "let {{ install_machine_username }} sudo without password on Ubuntu"
       become: yes
@@ -81,7 +81,7 @@
       become: yes
       mount:
         path: /mnt/nfs
-        src: "{{ nfs_server_ip_address }}:{{ nfs_folder_path }}"
+        src: "{{ nfs_server_ip_address }}:{{ nfs_server_folder_path }}"
         fstype: nfs
         state: mounted
 
