@@ -3,8 +3,7 @@
   vars:
     - install_machine_username: "user"
     - install_machine_ip_address: "192.168.77.151"
-    - nfs_server_ip_address: "192.168.77.155"
-    - nfs_folder_path: "/home/cujuft/nfsfolder_test"
+    - nfs_folder_path: "~"
   tasks:
     - name: "let {{ install_machine_username }} sudo without password on Ubuntu"
       become: yes
@@ -68,6 +67,7 @@
          - nfs-common
          - git
          - tigervnc-viewer
+         - nfs-kernel-server
         update_cache: yes
 
     - name: creat directory /mnt/nfs
@@ -77,11 +77,27 @@
         state: directory
         mode: 0755
 
+    - name: creat directory nfsfolder
+      file:
+        path: "{{ nfs_folder_path }}/nfsfolder"
+        state: directory
+        mode: 0755
+
+    - name: add line to /etc/exports
+      lineinfile:
+        path: /etc/exports
+        regexp: "^/home/{{ install_machine_username }}/nfsfolder *(rw,no_root_squash,no_subtree_check)"
+        line: "/home/{{ install_machine_username }}/nfsfolder *(rw,no_root_squash,no_subtree_check)"
+
+    - name: restart nfs kernel server
+      become: yes
+      command: /etc/init.d/nfs-kernel-server restart
+
     - name: mount remote /mnt/nfs to local nfsfolder
       become: yes
       mount:
         path: /mnt/nfs
-        src: "{{ nfs_server_ip_address }}:{{ nfs_folder_path }}"
+        src: "{{ install_machine_ip_address }}:/home/{{install_machine_username }}/nfsfolder"
         fstype: nfs
         state: mounted
 
