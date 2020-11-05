@@ -3,7 +3,8 @@
   vars:
     - install_machine_username: "user"
     - install_machine_ip_address: "192.168.77.151"
-    - directory_path: "~"
+    - nfs_server_ip_address: "192.168.77.155"
+    - nfs_folder_path: "/home/cujuft/nfsfolder_test"
   tasks:
     - name: "let {{ install_machine_username }} sudo without password on Ubuntu"
       become: yes
@@ -69,16 +70,25 @@
          - tigervnc-viewer
         update_cache: yes
 
-    - name: creat directory nfsfolder
+    - name: creat directory /mnt/nfs
+      become: yes
       file:
-        path: "{{ directory_path }}/nfsfolder"
+        path: /mnt/nfs
         state: directory
         mode: 0755
+
+    - name: mount remote /mnt/nfs to local nfsfolder
+      become: yes
+      mount:
+        path: /mnt/nfs
+        src: "{{ nfs_server_ip_address }}:{{ nfs_folder_path }}"
+        fstype: nfs
+        state: mounted
 
     - name: git clone cuju
       command: git clone https://github.com/Cuju-ft/Cuju.git
       args:
-        chdir: "{{ directory_path }}/nfsfolder"
+        chdir: /mnt/nfs
 
     - name: Cuju make
       command: "{{ item }}"
@@ -88,7 +98,7 @@
         - make clean
         - make -j8
       args:
-        chdir: "{{ directory_path }}/nfsfolder/Cuju"
+        chdir: /mnt/nfs/Cuju
 
     - name: KVM make
       command: "{{ item }}"
@@ -98,12 +108,12 @@
         - make -j8
         - ./reinsmodkvm.sh
       args:
-        chdir: "{{ directory_path }}/nfsfolder/Cuju/kvm"
+        chdir: /mnt/nfs/Cuju/kvm
 
     - name: copy runvm.sh, recv.sh, ftmode.sh
       copy: 
         src: "{{ item }}"
-        dest: "{{ directory_path }}/nfsfolder/Cuju"
+        dest: /mnt/nfs/Cuju
         mode: 0755
       with_items:
         - ./cuju_sh/runvm.sh
@@ -112,13 +122,13 @@
 
     - name: change runvm.sh
       replace:
-        path: "{{ directory_path }}/nfsfolder/Cuju/runvm.sh"
+        path: /mnt/nfs/Cuju/runvm.sh
         regexp: '\[your username\]'
         replace: "{{ install_machine_username }}"
 
     - name: change ftmode.sh
       replace:
-        path: "{{ directory_path }}/nfsfolder/Cuju/ftmode.sh"
+        path: /mnt/nfs/Cuju/ftmode.sh
         regexp: '{{ item.regexp }}'
         replace: '{{ item.replace }}'
       with_items:
@@ -128,16 +138,16 @@
     - name: download gdown.pl (download Ubuntu20G-1604.img)
       get_url:
         url: https://raw.githubusercontent.com/circulosmeos/gdown.pl/master/gdown.pl
-        dest: "{{ directory_path }}/nfsfolder"
+        dest: /mnt/nfs
         mode: 0775
 
     - name: download Ubuntu20G-1604.tar.gz (download Ubuntu20G-1604.img)
       command: ./gdown.pl https://drive.google.com/file/d/0B9au9R9FzSWKNjZpWUNlNDZLcEU/view Ubuntu20G-1604.tar.gz
       args:
-        chdir: "{{ directory_path }}/nfsfolder"
+        chdir: /mnt/nfs
 
     - name: unzip Ubuntu20G-1604.tar.gz (download Ubuntu20G-1604.img)
       unarchive:
-        src: "{{ directory_path }}/nfsfolder/Ubuntu20G-1604.tar.gz"
-        dest: "{{ directory_path }}/nfsfolder"
+        src: /mnt/nfs/Ubuntu20G-1604.tar.gz
+        dest: /mnt/nfs
         remote_src: yes

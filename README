@@ -1,1 +1,69 @@
 # Cuju Deploy
+
+遠端主機
+---
+* 先確認佈署主機的 kernel 版本能夠更換成 4.15.0-29-generic 或是到 Cuju 的 Github（https://github.com/Cuju-ft/Cuju/tree/support/kernel4.15 ）下載並安裝 ubuntu-18.04.1-live-server-amd64.iso (Ubuntu 18.04.1)
+
+* 設定好佈署主機的網路並確認能夠用 ssh 進入
+
+本機上
+---
+
+* 安裝 ansible
+    ```
+    $ sudo apt-get install software-properties-common
+    $ sudo apt-add-repository ppa:ansible/ansible
+    $ sudo apt-get update
+    $ sudo apt-get install ansible
+    ```
+
+* 建立 inventory 放置需要部署的主機資料
+    ```
+    $ vim inventory
+    ___
+    [cuju]
+    192.168.77.151 ansible_connection=ssh ansible_ssh_user=user ansible_ssh_pass=root ansible_sudo_pass=root
+    ```
+    ######  不建議將 ansible_ssh_pass, ansible_sudo_pass 放在這裡，可以參考官網（https://docs.ansible.com/ansible/2.9/user_guide/intro_inventory.html ）使用 ssh_key 和 vaults
+
+* 下載 Cuju deploy
+    ```
+    $ git clone
+    ```
+* 建立 nfs server 
+    ```
+    $ sudo apt-get install nfs-kernel-server
+    $ sudo vim /etc/exports
+    加入下面那行
+    ---
+    "要當作 nfs 資料夾的絕對路徑" *(rw,no_root_squash,no_subtree_check)
+    * example: /home/[your username]/nfsfolder *(rw,no_root_squash,no_subtree_check) 
+    
+    $ sudo /etc/init.d/nfs-kernel-server restart
+    ```
+
+* 確認防火牆允許 nfs 通過
+    ``$ sudo ufw status``
+    查看是否有``2049            ALLOW       Anywhere``
+    沒有的話輸入以下指令
+    ``$sudo ufw allow nfs``
+
+* 更改 cuju.yml 內容
+    ```
+    更改 vars 下方三個變數
+    install_machine_username: "遠端主機的 username"
+    install_machine_ip_address: "遠端主機的 ip address"
+    nfs_server_ip_address: "nfs server 的 ip"
+    nfs_folder_path: "要 mount nfs server 上的資料夾路徑"
+    ```
+
+* 開始佈署 Cuju 在遠端主機
+    ```
+    $ ansible-playbook -i inventory cuju.yml
+    佈署步驟(cuju.yml) 參考 deploy_cuju.word
+    ```
+
+* Ubuntu-16.04 VM image file will be download, and the `account/password` is `root/root`
+ 
+使用 cuju 步驟
+---
