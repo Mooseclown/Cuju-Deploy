@@ -77,7 +77,7 @@
         state: directory
         mode: 0755
 
-    - name: mount remote /mnt/nfs to local nfsfolder
+    - name: mount local nfsfolder to remote /mnt/nfs
       become: yes
       mount:
         path: /mnt/nfs
