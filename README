@@ -31,6 +31,11 @@
     $ git clone https://github.com/Mooseclown/Cuju-Deploy.git
     ```
 
+* 切換 branch
+    ```
+    $ git checkout nfs_server_local
+    ```
+
 * 建立 nfs server 
     ```
     $ sudo apt-get install nfs-kernel-server
@@ -61,74 +66,12 @@
 * 開始佈署 Cuju 在遠端主機
     ```
     $ ansible-playbook -i inventory cuju.yml
-    佈署步驟(cuju.yml) 參考下方 Cuju 佈署流程
+    佈署步驟參考下方 cuju.yml
     ```
 
 * Ubuntu-16.04 VM image file will be download, and the `account/password` is `root/root`
  
-使用 cuju 步驟
----
-設定網路
-```
-$ sudo vim /etc/netplan/50-cloud-init.yaml
-    network:
-    ethernets:
-        lo:
-            dhcp4: no
-            dhcp6: no
-        ens3:
-            dhcp4: no
-            dhcp6: no
-    bridges:
-        br0:
-            interfaces: [ens3]
-            addresses: [192.168.77.151/24]
-            gateway4: 192.168.77.7
-            nameservers:
-                addresses: [8.8.8.8]
-            dhcp4: no
-            dhcp6: no
-
-    version: 2
-```
-
-開啟一個 terminal-A
-```
-$ sudo mount -t nfs [nfs_server_ip]:[nfs_folder_path] /mnt/nfs
-$ cd /mnt/nfs/Cuju/kvm
-$ ./reinsmodkvm.sh
-$ cd ..
-$ ./runvm.sh
-```
-
-開啟另一個 terminal-B
-```
-$ cd /mnt/nfs/Cuju
-看 Primary host 畫面
-$ vncviewer :5900 &
-* The default account/password is root/root if you use we provide guest image
-```
-
-確認開機成功後，再開另一個 terminal-C
-```
-$ cd /mnt/nfs/Cuju
-$ ./recv.sh
-```
-
-使用 terminal-B
-```
-$ ./ftmode.sh
-看 Backup host 畫面
-$ vncviewer :5901 &
-```
-
-If you successfully start Cuju, you will see the following message show on Primary Host(terminal-A):
-![](https://i.imgur.com/nUdwKkB.jpg)
-
-If you want to test failover You can kill or ctrl-c VM on the Primary Host, and you will see the following message show on Backup Host(terminal-C):
-![](https://i.imgur.com/JWIhtDz.png)
-
-Cuju 佈署流程
+cuju.yml
 ---
 * 讓 sudo 不用輸入密碼(在 /etc/sudoer 新增 [your username] ALL=(ALL) NOPASSWD: ALL)
     ```
@@ -382,3 +325,65 @@ Cuju 佈署流程
     ---
     $ tar zxvf Ubuntu20G-1604.tar.gz
     ```
+
+    使用 cuju 步驟
+---
+設定網路
+```
+$ sudo vim /etc/netplan/50-cloud-init.yaml
+    network:
+    ethernets:
+        lo:
+            dhcp4: no
+            dhcp6: no
+        ens3:
+            dhcp4: no
+            dhcp6: no
+    bridges:
+        br0:
+            interfaces: [ens3]
+            addresses: [192.168.77.151/24]
+            gateway4: 192.168.77.7
+            nameservers:
+                addresses: [8.8.8.8]
+            dhcp4: no
+            dhcp6: no
+
+    version: 2
+```
+
+開啟一個 terminal-A
+```
+$ sudo mount -t nfs [nfs_server_ip]:[nfs_folder_path] /mnt/nfs
+$ cd /mnt/nfs/Cuju/kvm
+$ ./reinsmodkvm.sh
+$ cd ..
+$ ./runvm.sh
+```
+
+開啟另一個 terminal-B
+```
+$ cd /mnt/nfs/Cuju
+看 Primary host 畫面
+$ vncviewer :5900 &
+* The default account/password is root/root if you use we provide guest image
+```
+
+確認開機成功後，再開另一個 terminal-C
+```
+$ cd /mnt/nfs/Cuju
+$ ./recv.sh
+```
+
+使用 terminal-B
+```
+$ ./ftmode.sh
+看 Backup host 畫面
+$ vncviewer :5901 &
+```
+
+If you successfully start Cuju, you will see the following message show on Primary Host(terminal-A):
+![](https://i.imgur.com/nUdwKkB.jpg)
+
+If you want to test failover You can kill or ctrl-c VM on the Primary Host, and you will see the following message show on Backup Host(terminal-C):
+![](https://i.imgur.com/JWIhtDz.png)
