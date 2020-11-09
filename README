@@ -368,7 +368,7 @@ $ sudo vim /etc/netplan/50-cloud-init.yaml
 
 開啟一個 terminal-A
 ```
-$ sudo mount -t nfs [nfs_server_ip]:[nfs_folder_path] /mnt/nfs
+$ sudo mount -t nfs [install_machine_ip_address]:/home/[install_machine_username]/nfsfolder /mnt/nfs
 $ cd /mnt/nfs/Cuju/kvm
 $ ./reinsmodkvm.sh
 $ cd ..
