@@ -56,7 +56,7 @@
 
 * 更改 cuju.yml 內容
     ```
-    更改 vars 下方三個變數
+    更改 vars 下方四個變數
     install_machine_username: "遠端主機的 username"
     install_machine_ip_address: "遠端主機的 ip address"
     nfs_server_ip_address: "nfs server 的 ip"
@@ -354,7 +354,7 @@ $ sudo vim /etc/netplan/50-cloud-init.yaml
 
 開啟一個 terminal-A
 ```
-$ sudo mount -t nfs [nfs_server_ip]:[nfs_folder_path] /mnt/nfs
+$ sudo mount -t nfs [nfs_server_ip_address]:[nfs_server_folder_path] /mnt/nfs
 $ cd /mnt/nfs/Cuju/kvm
 $ ./reinsmodkvm.sh
 $ cd ..
