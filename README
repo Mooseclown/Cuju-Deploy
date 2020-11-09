@@ -31,6 +31,11 @@
     $ git clone https://github.com/Mooseclown/Cuju-Deploy.git
     ```
 
+* 切換 branch
+    ```
+    $ git checkout nfs_server_remote
+    ```
+
 * 更改 cuju.yml 內容
     ```
     更改 vars 下方三個變數
