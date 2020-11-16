@@ -1,0 +1,68 @@
+- name: start Cuju
+  hosts: cuju
+  vars:
+    primary_vm_ip: "192.168.77.152"
+  tasks:
+
+    - name: mount remote nfsfolder to remote /mnt/nfs
+      become: yes
+      mount:        # This module controls active and configured mount points in /etc/fstab .
+        path: /mnt/nfs
+        src: "{{ ansible_ssh_host }}:/home/{{ansible_ssh_user }}/nfsfolder"
+        fstype: nfs
+        state: mounted
+
+    - name: change to Cuju's kvm module
+      become: yes
+      command: ./reinsmodkvm.sh
+      args:
+        chdir: /mnt/nfs/Cuju/kvm
+
+    - name: install expect
+      become: yes
+      apt:
+        pkg:
+          - expect
+        update_cache: yes
+
+    - name: execute runvm.sh
+      command: "{{ item }}"
+      with_items:
+        - tmux new-session -d -s cuju -n runvm
+        - tmux send-keys -t cuju:runvm "cd /mnt/nfs/Cuju" Enter
+        - tmux send-keys -t cuju:runvm "./runvm.sh" Enter
+
+    - name: copy check_ssh.sh ssh_connet_primaryvm.sh
+      copy:
+        src: "{{ item }}"
+        dest: /mnt/nfs/Cuju
+        mode: 0755
+      with_items:
+        - ./cuju_sh/check_ssh.sh
+        - ./cuju_sh/ssh_connect_primaryvm.sh
+
+    - name: sleep 20s
+      pause:
+        seconds: 20
+
+    - name: check primary vm is setup
+      command: "./check_ssh.sh {{ primary_vm_ip }} /mnt/nfs/vm1.monitor"
+      args:
+        chdir: /mnt/nfs/Cuju
+      register: check_ssh
+
+    - name: execute recv.sh
+      command: "{{ item }}"
+      with_items:
+        - tmux new-window -d -t cuju -n recv
+        - tmux send-keys -t cuju:recv "cd /mnt/nfs/Cuju" Enter
+        - tmux send-keys -t cuju:recv "./recv.sh" Enter
+      when: check_ssh.stdout.find('0') != -1
+
+    - name: execute fdmode.sh
+      command: "{{ item }}"
+      with_items:
+        - tmux new-window -d -t cuju -n ftmode
+        - tmux send-keys -t cuju:ftmode "cd /mnt/nfs/Cuju" Enter
+        - tmux send-keys -t cuju:ftmode "./ftmode.sh" Enter
+      when: check_ssh.stdout.find('0') != -1
