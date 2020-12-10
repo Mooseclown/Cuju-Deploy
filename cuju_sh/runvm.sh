@@ -5,4 +5,4 @@ sudo ./x86_64-softmmu/qemu-system-x86_64 \
 -m 1G -enable-kvm \
 -net tap,ifname=tap0 -net nic,model=virtio,vlan=0,macaddr=ae:cd:12:00:00:75 \
 -cpu host \
--vga std -chardev socket,id=mon,path=/home/[your username]/vm1.monitor,server,nowait -mon chardev=mon,id=monitor,mode=readline
+-vga std -chardev socket,id=mon,path=/mnt/nfs/vm1.monitor,server,nowait -mon chardev=mon,id=monitor,mode=readline

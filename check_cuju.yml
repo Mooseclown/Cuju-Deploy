@@ -53,7 +53,7 @@
         - tmux new-session -d -s cuju -n recv
         - tmux send-keys -t cuju:recv "cd /mnt/nfs/Cuju" Enter
         - tmux send-keys -t cuju:recv "./recv.sh" Enter
-      when: ansible_ssh_host == backup_host_ip and check_in_primary.stdout.find('0') != -1
+      when: ansible_ssh_host == backup_host_ip
 
     - name: sleep 40s
       pause:
@@ -63,4 +63,62 @@
       command: ./ftmode.sh
       args:
         chdir: /mnt/nfs/Cuju
-      when: ansible_ssh_host == primary_host_ip and check_in_primary.stdout.find('0') != -1
+      when: ansible_ssh_host == primary_host_ip
+
+
+- name: check cuju start successfully
+  hosts: cuju
+  become: yes
+  tasks:
+
+    - name: call failover
+      shell: echo "cuju-failover" | nc -w 1 -U vm1r.monitor
+      args:
+        chdir: /mnt/nfs
+      when: ansible_ssh_host == backup_host_ip
+
+    - name: kill tmux session
+      command: tmux kill-session -t cuju
+      when: ansible_ssh_host == primary_host_ip
+
+    - name: sleep 30s
+      pause:
+        seconds: 30
+
+    - name: check vm is alive
+      command: "./check_ssh.sh {{ guest_ip }} /mnt/nfs/vm1r.monitor"
+      args:
+        chdir: /mnt/nfs/Cuju
+      register: check_in_backup
+      when: ansible_ssh_host == backup_host_ip
+
+    - name: copy poweroff_vm.sh
+      copy:
+        src: ./cuju_sh/poweroff_vm.sh
+        dest: /mnt/nfs/Cuju
+        mode: 0755
+      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1
+
+    - name: poweroff vm
+      command: "./poweroff_vm.sh {{ guest_ip }}"
+      args:
+        chdir: /mnt/nfs/Cuju
+      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1
+
+    - name: sleep 30s
+      pause:
+        seconds: 30
+
+    - name: kill tmux session
+      command: tmux kill-session -t cuju
+      when: ansible_ssh_host == backup_host_ip
+
+    - name: if Cuju ftmode unsuccessfully,show this
+      fail:
+        msg: Cuju ftmode unsuccessfully.
+      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') == -1
+
+    - name: show the vm state
+      debug:
+        msg: "{{ check_in_backup.stdout }}"
+      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1

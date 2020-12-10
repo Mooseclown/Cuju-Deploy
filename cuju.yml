@@ -1,8 +1,9 @@
 - name: set enviroment
   hosts: cuju
-  become: yes
+  become: yes       # like sudo
+  tags: enviroment
   tasks:
-    - name: "let {{ ansible_ssh_user }} sudo without password on Ubuntu"
+    - name: "let {{ ansible_ssh_user }} sudo without password on Ubuntu"      
       lineinfile:       # add a line to a file if it does not exist, after validate.
         path: /etc/sudoers
         line: '{{ ansible_ssh_user }} ALL=(ALL) NOPASSWD: ALL'
@@ -14,6 +15,7 @@
           - linux-image-4.15.0-29-generic
           - linux-headers-4.15.0-29-generic
         update_cache: yes       # like apt-get update
+      when: Ubuntu_version == 18
 
     - name: update GRUB_DEFAULT
       lineinfile:       # this module will search a file for a line, and ensure that it is present or absent. And this is primarily useful when you want to change a single line in a file only.
@@ -108,10 +110,15 @@
       args:
         chdir: /mnt/nfs
 
+    - name: Cuju change version to Ubuntu18
+      command: git checkout support/kernel4.15
+      args:
+        chdir: /mnt/nfs/Cuju        # path
+      when: Ubuntu_version == 18
+
     - name: Cuju make
       command: "{{ item }}"       # execute command in order.
       with_items:
-        - git checkout support/kernel4.15
         - ./configure --enable-cuju --enable-kvm --disable-pie --target-list=x86_64-softmmu
         - make clean
         - make -j8
@@ -160,3 +167,94 @@
         src: /mnt/nfs/Ubuntu20G-1604.tar.gz
         dest: /mnt/nfs
         remote_src: yes
+
+- name: mount guset raw image
+  hosts: primary_host
+  become: yes
+  tasks:
+
+    - name: install kpartx
+      apt:
+        pkg:
+         - kpartx
+        update_cache: yes
+
+    - name: creat directory /mnt/vm
+      file:       # creat a directory with path and access permissions is 755
+        path: /mnt/vm
+        state: directory
+        mode: 0755
+
+    - name: lookup whick /dev/loop can use
+      command: losetup -f
+      register: dev_loop
+
+    - name: add to loop and partation
+      command: "{{ item }}"
+      with_items:
+        - losetup -f /mnt/nfs/Ubuntu20G-1604.img 
+        - "kpartx -a {{ dev_loop['stdout'] }}"
+    
+    - name: find partation map
+      command: "kpartx -l {{ dev_loop['stdout'] }}"
+      register: loop_part
+
+    - name: mount
+      command: "mount /dev/mapper/{{ loop_part['stdout'].split(' ')[0] }} /mnt/vm"
+
+- name: change guest network
+  hosts: primary_host
+  become: yes
+  tasks:
+
+    - name: change address
+      lineinfile:
+        path: /mnt/vm/etc/network/interfaces
+        regexp: '^address.*'
+        line: "address {{ guest_ip }}"
+
+    - name: change netmask
+      lineinfile:
+        path: /mnt/vm/etc/network/interfaces
+        regexp: '^netmask.*'
+        line: "netmask {{ guset_netmask }}"
+
+    - name: change network
+      lineinfile:
+        path: /mnt/vm/etc/network/interfaces
+        regexp: '^network.*'
+        line: "network {{ guest_network }}"
+
+    - name: change broadcast
+      lineinfile:
+        path: /mnt/vm/etc/network/interfaces
+        regexp: '^broadcast.*'
+        line: "broadcast {{ guest_broadcast }}"
+
+    - name: change gateway
+      lineinfile:
+        path: /mnt/vm/etc/network/interfaces
+        regexp: '^gateway.*'
+        line: "gateway {{ guest_gateway }}"
+
+    - name: change dns-nameservers
+      lineinfile:
+        path: /mnt/vm/etc/network/interfaces
+        regexp: '^dns-nameservers.*'
+        line: "dns-nameservers {{ guest_dns_nameservers }}"
+
+- name: unmount guest raw image
+  hosts: primary_host
+  become: yes
+  tasks:
+
+    - name: unmount guest image
+      command: "{{ item }}"
+      with_items:
+        - umount /mnt/vm
+        - sync
+        - "kpartx -d {{ dev_loop['stdout'] }}"
+        - sync
+        - "losetup -d {{ dev_loop['stdout'] }}"
+        - sync
+        - rm -r /mnt/vm
