@@ -1,27 +1,19 @@
 - name: start Cuju
   hosts: cuju
-  become: yes
   tasks:
-
-    - name: mount remote nfsfolder to remote /mnt/nfs
-      mount:        # This module controls active and configured mount points in /etc/fstab .
-        path: /mnt/nfs
-        src: "{{ local_host_ip }}:{{ nfs_folder_path }}"
-        fstype: nfs
-        state: mounted
-
     - name: replace kvm module to Cuju's kvm module
+      become: yes
       command: ./reinsmodkvm.sh
       args:
-        chdir: /mnt/nfs/Cuju/kvm
+        chdir: "{{ share_disk_path }}/Cuju/kvm"
 
     - name: boot vm on primary host(execute runvm.sh)
       command: "{{ item }}"
       with_items:
         - tmux new-session -d -s cuju -n runvm
-        - tmux send-keys -t cuju:runvm "cd /mnt/nfs/Cuju" Enter
+        - tmux send-keys -t cuju:runvm "cd {{ cuju_script_path }}" Enter
         - tmux send-keys -t cuju:runvm "./runvm.sh" Enter
-      when: ansible_ssh_host == primary_host_ip
+      when: ansible_ssh_host == primary_host_ip_1G
 
     - name: sleep 40s
       pause:
@@ -30,30 +22,31 @@
     - name: copy check_ssh.sh ssh_connet_primaryvm.sh
       copy:
         src: "{{ item }}"
-        dest: /mnt/nfs/Cuju
+        dest: "{{ cuju_script_path }}"
         mode: 0755
       with_items:
-        - ./cuju_sh/check_ssh.sh
-        - ./cuju_sh/ssh_connect_primaryvm.sh
+        - ./files/check_ssh.sh
+        - ./files/ssh_connect_primaryvm.sh
 
     - name: check primary vm is on
-      command: "./check_ssh.sh {{ guest_ip }} /mnt/nfs/vm1.monitor"
+      command: "./check_ssh.sh {{ guest_ip }} /home/{{ ansible_ssh_user }}/vm1.monitor"
       args:
-        chdir: /mnt/nfs/Cuju
-      register: check_in_primary
+        chdir: "{{ cuju_script_path }}"
+      register: check_primary_vm
+      when: ansible_ssh_host == primary_host_ip_1G
 
     - name: if primary vm off, quit this ansible
       fail:
         msg: primary vm boot unsuccessfully.
-      when: check_in_primary.stdout.find('0') == -1
+      when: hostvars['primary_host']['check_primary_vm'].stdout.find('0') == -1
 
     - name: start receiver(execute recv.sh)
       command: "{{ item }}"
       with_items:
         - tmux new-session -d -s cuju -n recv
-        - tmux send-keys -t cuju:recv "cd /mnt/nfs/Cuju" Enter
+        - tmux send-keys -t cuju:recv "cd {{ cuju_script_path }}" Enter
         - tmux send-keys -t cuju:recv "./recv.sh" Enter
-      when: ansible_ssh_host == backup_host_ip
+      when: ansible_ssh_host == backup_host_ip_1G
 
     - name: sleep 40s
       pause:
@@ -62,48 +55,48 @@
     - name: enter FT mode(execute fdmode.sh)
       command: ./ftmode.sh
       args:
-        chdir: /mnt/nfs/Cuju
-      when: ansible_ssh_host == primary_host_ip
+        chdir: "{{ cuju_script_path }}"
+      when: ansible_ssh_host == primary_host_ip_1G
 
 
 - name: check cuju start successfully
   hosts: cuju
-  become: yes
   tasks:
 
     - name: call failover
+      become: yes
       shell: echo "cuju-failover" | nc -w 1 -U vm1r.monitor
       args:
-        chdir: /mnt/nfs
-      when: ansible_ssh_host == backup_host_ip
+        chdir: "/home/{{ ansible_ssh_user }}"
+      when: ansible_ssh_host == backup_host_ip_1G
 
     - name: kill tmux session
       command: tmux kill-session -t cuju
-      when: ansible_ssh_host == primary_host_ip
+      when: ansible_ssh_host == primary_host_ip_1G
 
     - name: sleep 30s
       pause:
         seconds: 30
 
     - name: check vm is alive
-      command: "./check_ssh.sh {{ guest_ip }} /mnt/nfs/vm1r.monitor"
+      command: "./check_ssh.sh {{ guest_ip }} /home/{{ ansible_ssh_user }}/vm1r.monitor"
       args:
-        chdir: /mnt/nfs/Cuju
-      register: check_in_backup
-      when: ansible_ssh_host == backup_host_ip
+        chdir: "{{ cuju_script_path }}"
+      register: check_backup_vm
+      when: ansible_ssh_host == backup_host_ip_1G
 
     - name: copy poweroff_vm.sh
       copy:
-        src: ./cuju_sh/poweroff_vm.sh
-        dest: /mnt/nfs/Cuju
+        src: ./files/poweroff_vm.sh
+        dest: "{{ cuju_script_path }}"
         mode: 0755
-      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1
+      when: ansible_ssh_host == backup_host_ip_1G and check_backup_vm.stdout.find('0') != -1
 
     - name: poweroff vm
       command: "./poweroff_vm.sh {{ guest_ip }}"
       args:
-        chdir: /mnt/nfs/Cuju
-      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1
+        chdir: "{{ cuju_script_path }}"
+      when: ansible_ssh_host == backup_host_ip_1G and check_backup_vm.stdout.find('0') != -1
 
     - name: sleep 30s
       pause:
@@ -111,14 +104,14 @@
 
     - name: kill tmux session
       command: tmux kill-session -t cuju
-      when: ansible_ssh_host == backup_host_ip
+      when: ansible_ssh_host == backup_host_ip_1G
 
     - name: if Cuju ftmode unsuccessfully,show this
       fail:
         msg: Cuju ftmode unsuccessfully.
-      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') == -1
+      when: hostvars['backup_host']['check_backup_vm'].stdout.find('0') == -1
 
     - name: show the vm state
       debug:
-        msg: "{{ check_in_backup.stdout }}"
-      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1
+        msg: "{{ check_backup_vm.stdout }}"
+      when: hostvars['backup_host']['check_backup_vm'].stdout.find('0') != -1

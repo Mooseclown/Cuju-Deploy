@@ -8,4 +8,4 @@ sudo sed -i '$a /home/'"$USER"'/cuju_nfsfolder *(rw,no_root_squash,no_subtree_ch
 sudo /etc/init.d/nfs-kernel-server restart
 sudo sed -i 's/\[user_name\]/'"$USER"'/g' $BASEDIR/inventory
 
-ansible-playbook -i inventory cuju.yml
+ansible-playbook setup.yml

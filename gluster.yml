@@ -1,0 +1,106 @@
+- name: gluster
+  hosts: cuju
+  vars:
+    - gluster_path : /glusterfs
+    - gluster_volume_name : gvol0
+  tasks:
+    - name: install gluster
+      become: yes
+      apt:
+        pkg:
+          - glusterfs-server
+        state: latest
+        update-cache: yes
+
+    - name: creat gluster folder
+      become: yes
+      file:
+        path: "{{ gluster_path }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: "0755"
+
+    - name: create a ext4 filesystem on free disk
+      become: yes
+      community.general.filesystem:
+        fstype: ext4
+        dev: "{{ free_disk }}"
+
+    - name: mount gluster
+      become: yes
+      mount:
+        path: "{{ gluster_path }}"
+        src: "{{ free_disk }}"
+        fstype: ext4
+        state: mounted
+
+    - name: set /etc/hosts
+      become: yes
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+      with_items:
+        - "{{ primary_host_ip_10G }} {{ primary_host_gluster_machine_name }}"
+        - "{{ backup_host_ip_10G }} {{ backup_host_gluster_machine_name }}"
+
+    - name: start gluster
+      become: yes
+      command: "{{ item }}"
+      with_items:
+        - systemctl start glusterd.service
+        - systemctl enable glusterd.service
+        - systemctl status glusterd.service
+
+    - name: gluster peer
+      become: yes
+      gluster.gluster.gluster_peer:
+        state: present
+        nodes:
+          - "{{ primary_host_gluster_machine_name }}"
+          - "{{ backup_host_gluster_machine_name }}"
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: creat gluster volume folder
+      become: yes
+      file:
+        path: "{{ gluster_path }}/{{ gluster_volume_name }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: "0755"
+
+    - name: set gluster client
+      become: yes
+      gluster.gluster.gluster_volume:
+        state: present
+        name: "{{ gluster_volume_name }}"
+        bricks: "{{ gluster_path }}/{{ gluster_volume_name }}"
+        cluster:
+          - "{{ primary_host_gluster_machine_name }}"
+          - "{{ backup_host_gluster_machine_name }}"
+        replicas: 2
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: creat share disk directory
+      become: yes
+      file:
+        path: "{{ share_disk_path }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: "0755"
+
+    - name: mount gluster volume to share disk directory
+      become: yes
+      mount:
+        path: "{{ share_disk_path }}"
+        src: "{{ gluster_machine_name }}:/{{ gluster_volume_name }}"
+        fstype: glusterfs
+        opts: defaults,_netdev,noauto,x-systemd.automount
+        state: mounted
+
+    - name: set gluster timeout
+      become: yes
+      command: "gluster volume set {{ gluster_volume_name }} network.ping-timeout 1"
+      when: ansible_ssh_host == primary_host_ip_1G

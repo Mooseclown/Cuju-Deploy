@@ -15,6 +15,8 @@
     $ sudo apt-add-repository ppa:ansible/ansible
     $ sudo apt-get update
     $ sudo apt-get install ansible
+    $ ansible-galaxy collection install gluster.gluster
+    $ ansible-galaxy collection install community.general
     ```
 
 * 下載 Cuju deploy
@@ -24,29 +26,82 @@
 
 * 更改 inventory 參數
     ```
+    cuju 為一個 group，包含 primary 和 backup 兩個子 group。
+    [cuju:vars] 是 cuju group 底下的 global variable
+    primary 為一個 group，包含 primary_host 一個主機
+    [primary:vars] 是 primary group 底下的 global variable
+    backup 為一個 group，包含 backup_host 一個主機
+    [backup:vars] 是 backup group 底下的 global variable
+    ```
+    *** 只需更改 cuju group 的 global variable 即可 ***
+    ```
     $ vim inventory
     ___
     [cuju:vars]
-    # primary host 相關資訊
-    primary_host_ip = 192.168.77.151
+    # choose type of share disk:
+    share_disk = "gluster"     # please input 'gluster' or 'nfs'
+    use_heartbeat = "yes"         # please input 'yes' or 'no'
+
+    # primary host information:
+    primary_host_ip_1G = 192.168.77.151
+    primary_host_ip_10G = 192.168.123.100
     primary_host_user_name = cuju
     primary_host_password = cujuft
-    primary_host_nic = ens3   # 網卡名稱
-    # backup host 相關資訊
-    backup_host_ip = 192.168.77.153
+    primary_host_gluster_machine_name = FTGlusterFS1
+    primary_host_cuju_machine_name = cujuft-machine1
+    primary_host_bridge_nic_1G = ens3
+    primary_free_disk = /dev/vdb
+
+    # backup host information:
+    backup_host_ip_1G = 192.168.77.153
+    backup_host_ip_10G = 192.168.123.101
     backup_host_user_name = cuju
     backup_host_password = cujuft
-    backup_host_nic = ens3    # 網卡名稱
-    # 本機 ip
+    backup_host_gluster_machine_name = FTGlusterFS2
+    backup_host_cuju_machine_name = cujuft-machine2
+    backup_host_bridge_nic_1G = ens3
+    backup_free_disk = /dev/vdb
+
+    # if share_disk is nfs
     local_host_ip = 192.168.77.155
-    # 執行在 primary host 的 vm 網路設定
+    nfs_folder_path = "/home/[user_name]/cuju_nfsfolder"    # modify [user_name] to your local user name
+
+    # if use_heart_beat is yes
+    bind_network = "192.168.77.0"     # primary and backup host ip network
+    external_ip = "192.168.77.155"    # to check network is health
+
+    # the vm network config
     guest_ip = 192.168.77.152
     guset_netmask = 255.255.255.0
     guest_network = 192.168.77.0
     guest_broadcast = 192.168.77.255
     guest_gateway = 192.168.77.7
     guest_dns_nameservers = 140.96.254.98 8.8.8.8
-    nfs_folder_path = "/home/[user_name]/cuju_nfsfolder"    # modify [user_name] to your local user name
+
+    share_disk_path = /mnt/nfs
+    [cuju:children]
+    primary
+    backup
+
+    [primary:vars]
+    gluster_machine_name = "{{ primary_host_gluster_machine_name }}"
+    cuju_machine_name = "{{ primary_host_cuju_machine_name }}"
+    bridge_nic = "{{ primary_host_bridge_nic_1G }}"
+    free_disk = "{{ primary_free_disk }}"
+    cuju_script_path = "/home/{{ primary_host_user_name }}/cuju_script"
+
+    [primary]
+    primary_host ansible_ssh_host="{{ primary_host_ip_1G }}" ansible_connection=ssh ansible_ssh_user="{{ primary_host_user_name }}" ansible_ssh_pass="{{ primary_host_password }}" ansible_sudo_pass="{{ primary_host_password }}"
+
+    [backup:vars]
+    gluster_machine_name = "{{ backup_host_gluster_machine_name }}"
+    cuju_machine_name = "{{ backup_host_cuju_machine_name }}"
+    bridge_nic = "{{ backup_host_bridge_nic_1G }}"
+    free_disk = "{{ backup_free_disk }}"
+    cuju_script_path = "/home/{{ backup_host_user_name }}/cuju_script"
+
+    [backup]
+    backup_host ansible_ssh_host="{{ backup_host_ip_1G }}" ansible_connection=ssh ansible_ssh_user="{{ backup_host_user_name }}" ansible_ssh_pass="{{ backup_host_password }}" ansible_sudo_pass="{{ backup_host_password }}"
     ```
     ######  不建議將 ansible_ssh_pass, ansible_sudo_pass 放在這裡，可以參考官網（https://docs.ansible.com/ansible/2.9/user_guide/intro_inventory.html ）使用 ssh_key 和 vaults
 
@@ -55,22 +110,34 @@
     cd Cuju-Deploy
     $ ./start.sh
     ```
-    佈署步驟請看下方 cuju.yml
 
-* 執行並檢測 Cuju 是否執行成功，並將 vm 關機
+* 佈署步驟
     ```
-    $ ansible-playbook -i inventory check_cuju.yml
+    # 更換成適合 CUJU 的環境
+    1. set_environment.yml
+    # 使用 share disk （ nfs 或 gluster ）
+    2. gluster.yml or nfs.yml
+    # 使用 heartbeat （選用）
+    3. heartbeat.yml
+    # 下載 CUJU 並編譯
+    4. download_cuju.yml
+    # 設定 VM 網路
+    5. set_vm_network.yml
+    # 確認 CUJU 是否能用
+    6. check_cuju.yml
     ```
-    檢測步驟請看下方 check_cuju.yml
 
 * Ubuntu-16.04 VM image file will be download, and the `account/password` is `root/root`
 
-cuju.yml
+##### 以下所有的 module 都可以用 `ansible-doc -s $module_name` 查詢如何使用
+ex: `ansible-doc -s lineinfile` or `ansible-doc -s apt`
+
+set_environment.yml
 ---
-## set enviroment
 hosts: cuju (primary host and backup host)
 become: yes     # like sudo
 
+## set enviroment
 * 讓 sudo 不用輸入密碼(在 /etc/sudoer 新增 [your username] ALL=(ALL) NOPASSWD: ALL)
     ```
     < ansible >
@@ -88,6 +155,8 @@ become: yes     # like sudo
     
     Ctrl-X save change and done~
     ```
+    ###### reference: 
+    lineinfile: https://docs.ansible.com/ansible/2.4/lineinfile_module.html
 
 * 更換版本
     ```
@@ -126,6 +195,9 @@ become: yes     # like sudo
     < script >
     $ sudo update-grub
     ```
+    ###### reference:
+    lineinfile: https://docs.ansible.com/ansible/2.4/lineinfile_module.html
+    apt: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_module.html
 
 * 下載並安裝 cuju 需要的 package
     ```
@@ -164,6 +236,8 @@ become: yes     # like sudo
     libglib2.0-dev qemu xorg bridge-utils openvpn libelf-dev \
     libssl-dev libpixman-1-dev nfs-common git tigervnc-viewer expect
     ```
+    ###### reference:
+    apt: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_module.html
 
 * 更改遠端主機網路設定 (加入 bridge)
     ```
@@ -181,7 +255,7 @@ become: yes     # like sudo
     < ansible >
     - name: copy network.py
       copy:
-        src: reset_network_with_bridge.py
+        src: ./files/reset_network_with_bridge.py
         dest: /etc/netplan/reset_network_with_bridge.py
         mode: '0744'
     ---
@@ -190,24 +264,34 @@ become: yes     # like sudo
 
     ***
     < ansible >
-    # 只在 primary host 執行
-    - name: change primary network config
-      command: "python reset_network_with_bridge.py {{ primary_host_nic }} {{ ansible_ssh_host[ansible_ssh_host|length-1] }}"
+    - name: change network config
+      command: "python reset_network_with_bridge.py {{ bridge_nic }} {{ ansible_ssh_host[ansible_ssh_host|length-1] }}"
       args:
         chdir: /etc/netplan
-      when: ansible_ssh_host == primary_host_ip   # like if
-
-    # 只在 backup host 執行
-    - name: change backup network config
-      become: yes
-      command: "python reset_network_with_bridge.py {{ backup_host_nic }} {{ ansible_ssh_host[ansible_ssh_host|length-1] }}"
-      args:
-        chdir: /etc/netplan
-      when: ansible_ssh_host == backup_host_ip    # like if
     ---
     < script >
     $ sudo python /etc/netplan/reset_network_with_bridge.py {{ backup_host_nic }} {{ bridge_number }}
     ```
+    ###### reference:
+    copy: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/copy_module.html
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+
+* 設定 host name
+    ```
+    < ansible >
+    - name: set /etc/hostname
+      become: yes
+      replace:
+        path: /etc/hostname
+        regexp: "^(.+)$"
+        replace: "{{ cuju_machine_name }}"
+    ---
+    < script >
+    $ sudo vim /etc/hostname
+        {{ cuju_machine_name }}
+    ```
+    ###### reference:
+    replace: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/replace_module.html
 
 * 重新開機
     ```
@@ -223,71 +307,112 @@ become: yes     # like sudo
     < script >
     $ reboot
     ```
+    ###### reference:
+    reboot: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/reboot_module.html
 
-## download and make cuju
-hosts: primary_host (only primary host)
-become: yes     # like sudo
+nfs.yml
+---
+hosts: cuju (primary host and backup host)
 
-* 開新資料夾 /mnt/nfs
+## mount with nfs
+* 建立 nfs 要 mount 的資料夾
     ```
     < ansible >
-    - name: creat directory /mnt/nfs
+    - name: creat directory with share disk path
+      become: yes
       file:       # creat a directory with path and access permissions is 755
-        path: /mnt/nfs
+        path: "{{ share_disk_path }}"
         state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
         mode: 0755
     ---
     < script >
-    $ sudo mkdir /mnt/nfs
+    $ sudo mkdir {{ share_disk_path }}
+    $ sudo chown -R {{ share_disk_path }}:{{ share_disk_path }} {{ share_disk_path }}
     ```
+    ###### reference:
+    file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
 
-* mount the nfs folder
+* mount nfs folder on remote host
     ```
     < ansible >
-    - name: mount remote nfsfolder to remote /mnt/nfs
-      mount:        # This module controls active and configured mount points in /etc/fstab .
-        path: /mnt/nfs
+    - name: mount local share disk to remote host
+      become: yes
+      mount:
+        path: "{{ share_disk_path }}"
         src: "{{ local_host_ip }}:{{ nfs_folder_path }}"
         fstype: nfs
         state: mounted
     ---
     < script >
-    $ sudo mount -t nfs {{ local_host_ip }}:{{ nfs_folder_path }} /mnt/nfs
+    $ sudo mount -t nfs {{ local_host_ip }}:{{ nfs_folder_path }} {{ share_disk_path }}
     ```
+    ###### reference:
+    mount: https://docs.ansible.com/ansible/latest/collections/ansible/posix/mount_module.html
+
+
+download_cuju.yml
+---
+hosts: cuju (primary host and backup host)
+
+## download and make cuju
+* 建立 cuju script 的資料夾
+    ```
+    < ansible >
+    - name: creat cuju script folder
+      file:
+        path: "{{ cuju_script_path }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: 0755
+    ---
+    < script >
+    $ sudo mkdir {{ cuju_script_path }}
+    $ sudo chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} {{ cuju_script_path }}
+    ```
+    ###### reference:
+    file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
     
 * 在 nfs folder 下載 cuju
     ```
-    < ansible >
-    - name: git clone cuju
-      command: git clone https://github.com/Cuju-ft/Cuju.git
-      args:
-        chdir: /mnt/nfs
+    - name: clone cuju
+      git:
+        repo: https://github.com/Cuju-ft/Cuju.git
+        dest: "{{ share_disk_path }}/Cuju"
+        version: support/kernel4.15
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
-    $ cd /mnt/nfs
+    $ cd {{ share_disk_path }}
     $ git clone https://github.com/Cuju-ft/Cuju.git
+    $ git checkout support/kernel4.15
     ```
+    ###### reference:
+    git: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/git_module.html
     
 * Configure & Compile Cuju-ft
     ```
     < ansible >
     - name: Cuju make
       command: "{{ item }}"       # execute command in order.
-      with_items:
-        - git checkout support/kernel4.15
+      with_items:           # loop to do
         - ./configure --enable-cuju --enable-kvm --disable-pie --target-list=x86_64-softmmu
         - make clean
         - make -j8
       args:
-        chdir: /mnt/nfs/Cuju        # path
+        chdir: "{{ share_disk_path }}/Cuju"        # path
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
-    $ cd /mnt/nfs/Cuju
-    $ git checkout support/kernel4.15
+    $ cd {{ share_disk_path }}/Cuju
     $ ./configure --enable-cuju --enable-kvm --disable-pie --target-list=x86_64-softmmu
     $ make clean
     $ make -j8
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
     
 * Configure, Compile & insmod Cuju-kvm module
     ```
@@ -298,55 +423,61 @@ become: yes     # like sudo
         - ./configure
         - make clean
         - make -j8
-        - ./reinsmodkvm.sh
+        - sudo ./reinsmodkvm.sh
       args:
-        chdir: /mnt/nfs/Cuju/kvm
+        chdir: "{{ share_disk_path }}/Cuju/kvm"
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
     $ cd /mnt/nfs/Cuju/kvm
     $ ./configure
     $ make clean
     $ make -j8
-    $ ./reinsmodkvm.sh
+    $ sudo ./reinsmodkvm.sh
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 * 回 Cuju 資料夾，複製並修改 cuju 要使用的 shell script
     ```
     < ansible >
     - name: copy runvm.sh, recv.sh, ftmode.sh
-      copy:         # the copy module copies a file from the local or remote machine to a location on the remote machine.
-        src: "{{ item }}"
-        dest: /mnt/nfs/Cuju
+      template:         # the copy module copies a file from the local or remote machine to a location on the remote machine.
+        src: "./templates/{{ item }}.j2"
+        dest: "{{ cuju_script_path }}/{{ item }}"
         mode: 0755
       with_items:
-        - ./cuju_sh/runvm.sh
-        - ./cuju_sh/recv.sh
-        - ./cuju_sh/ftmode.sh
-
-    - name: change ftmode.sh
-      replace:
-        path: /mnt/nfs/Cuju/ftmode.sh
-        regexp: '\[backup address\]'
-        replace: '{{ backup_host_ip }}'
+        - runvm.sh
+        - recv.sh
+        - ftmode.sh
     ---
     < script >
-    $ cd /mnt/nfs/Cuju
-    $ scp -P 22 ./cuju_sh/runvm.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:/mnt/nfs/Cuju/
-    $ scp -P 22 ./cuju_sh/recv.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:/mnt/nfs/Cuju/
-    $ scp -P 22 ./cuju_sh/ftmode.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:/mnt/nfs/Cuju/
-    $ sed -i 's/\[backup address\]/{{ backup_host_ip }}/g' ./ftmode.sh
+    *** local ***
+    $ scp -P 22 ./templates/runvm.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:{{ cuju_script_path }}/runvm.sh
+    $ scp -P 22 ./templates_sh/recv.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:{{ cuju_script_path }}/recv.sh
+    $ scp -P 22 ./templates/ftmode.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:{{ cuju_script_path }}/ftmode.sh
+    *** remote ***
+    更改 ftmode.sh
+    將 {{ backup_host_ip_10G }}(純文字) 更改為 {{ backup_host_ip_10G }}(變數)
+    將 {{ ansible_ssh_user }}(純文字) 更改為 {{ ansible_ssh_user }}(變數)
+    更改 runvm.sh
+    將 {{ ansible_ssh_user }}(純文字) 更改為 {{ ansible_ssh_user }}(變數)
     ```
+    ###### reference:
+    template: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/template_module.html
 
 * 下載能夠使用的 VM image
     ```
     < ansible >
-    - name: download gdown.pl (download Ubuntu20G-1604.img)
+     - name: download gdown.pl (download Ubuntu20G-1604.img)
       get_url:        # downloads files from HTTP, HTTPS, or FTP to the remote server. The remote server must have direct access to the remote resource.
         url: https://raw.githubusercontent.com/circulosmeos/gdown.pl/master/gdown.pl
-        dest: /mnt/nfs
+        dest: "{{ share_disk_path }}"
         mode: 0775
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
+    $ cd {{ share_disk_path }}
     $ wget -nc https://raw.githubusercontent.com/circulosmeos/gdown.pl/master/gdown.pl
     $ chmod +x gdown.pl
     
@@ -355,7 +486,8 @@ become: yes     # like sudo
     - name: download Ubuntu20G-1604.tar.gz (download Ubuntu20G-1604.img)
       command: ./gdown.pl https://drive.google.com/file/d/0B9au9R9FzSWKNjZpWUNlNDZLcEU/view Ubuntu20G-1604.tar.gz
       args:
-        chdir: /mnt/nfs
+        chdir: "{{ share_disk_path }}"
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
     $ ./gdown.pl https://drive.google.com/file/d/0B9au9R9FzSWKNjZpWUNlNDZLcEU/view Ubuntu20G-1604.tar.gz
@@ -364,18 +496,25 @@ become: yes     # like sudo
     < ansible >
     - name: unzip Ubuntu20G-1604.tar.gz (download Ubuntu20G-1604.img)
       unarchive:        # this module unpacks an archive. It will not unpack a compressed file that does not contain an archive.
-        src: /mnt/nfs/Ubuntu20G-1604.tar.gz
-        dest: /mnt/nfs
+        src: "{{ share_disk_path }}/Ubuntu20G-1604.tar.gz"
+        dest: "{{ share_disk_path }}"
         remote_src: yes
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
     $ tar zxvf Ubuntu20G-1604.tar.gz
     ```
+    ###### reference:
+    get_url: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/get_url_module.html
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+    unarchive: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/unarchive_module.html
 
-## mount guset raw image
+set_vm_network.yml
+---
 hosts: primary_host (only primary host)
 become: yes     # like sudo
 
+## mount guset raw image
 * 下載並安裝 kpartx
     ```
     < ansible >
@@ -386,9 +525,10 @@ become: yes     # like sudo
         update_cache: yes
     ---
     < script >
-    $ sudo apt-get update
     $ sudo apt-get install kpartx
     ```
+    ###### reference:
+    apt: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_module.html
 
 * 開新資料夾 /mnt/vm
     ```
@@ -402,6 +542,8 @@ become: yes     # like sudo
     < script >
     $ sudo mkdir /mnt/vm
     ```
+    ###### reference:
+    file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
 
 * 掛載 raw image 至 primary host 的 /mnt/vm
     ```
@@ -413,7 +555,7 @@ become: yes     # like sudo
     - name: add to loop and partation
       command: "{{ item }}"
       with_items:
-        - losetup -f /mnt/nfs/Ubuntu20G-1604.img 
+        - "losetup -f {{ share_disk_path }}/Ubuntu20G-1604.img"
         - "kpartx -a {{ dev_loop['stdout'] }}"
     
     - name: find partation map
@@ -426,12 +568,14 @@ become: yes     # like sudo
     < script >
     $ sudo losetup -f
     > /dev/loop6
-    $ sudo losetup -f /mnt/nfs/Ubuntu20G-1604.img
+    $ sudo losetup -f {{ share_disk_path }}/Ubuntu20G-1604.img
     $ sudo kpartx -a /dev/loop6
     $ sudo kpartx -l /dev/loop6
     > loop6p1 : 0 41938944 /dev/loop6 2048
     $ sudo mount /dev/mapper/loop6p1 /mnt/vm
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 ## change guest network
 hosts: primary_host (only primary host)
@@ -493,25 +637,31 @@ become: yes     # like sudo
 * 卸載 primary host 上的 raw image 並刪除 /mnt/vm
     ```
     < ansible >
-    - name: unmount guest image
+    - name: unmount /mnt/vm
+      mount:
+        path: /mnt/vm
+        state: unmounted
+
+    - name: remove /mnt/vm
+      file:
+        path: /mnt/vm
+        state: absent
+
+    - name: delete device loop
       command: "{{ item }}"
       with_items:
-        - umount /mnt/vm
         - sync
         - "kpartx -d {{ dev_loop['stdout'] }}"
         - sync
         - "losetup -d {{ dev_loop['stdout'] }}"
-        - sync
-        - rm -r /mnt/vm
     ---
     < script >
     $ sudo umount /mnt/vm
+    $ sudo rm -r /mnt/vm
     $ sync
     $ sudo kpartx -d /dev/loop6
     $ sync
     $ sudo losetup -d /dev/loop6
-    $ sync
-    $ sudo rm -r /mnt/vm
     ```
 
 check_cuju.yml
@@ -520,31 +670,18 @@ check_cuju.yml
 hosts: cuju (primary host and backup host)
 become: yes     # like sudo
 
-* mount the nfs folder
-    ```
-    < ansible >
-    - name: mount remote nfsfolder to remote /mnt/nfs
-      mount:        # This module controls active and configured mount points in /etc/fstab .
-        path: /mnt/nfs
-        src: "{{ local_host_ip }}:{{ nfs_folder_path }}"
-        fstype: nfs
-        state: mounted
-    ---
-    < script >
-    $ sudo mount -t nfs {{ local_host_ip }}:{{ nfs_folder_path }} /mnt/nfs
-    ```
-
 * 換成 Cuju 的 kvm
     ```
     < ansible >
     - name: replace kvm module to Cuju's kvm module
+      become: yes
       command: ./reinsmodkvm.sh
       args:
-        chdir: /mnt/nfs/Cuju/kvm
+        chdir: "{{ share_disk_path }}/Cuju/kvm"
     ---
     < script >
-    $ cd /mnt/nfs/Cuju/kvm
-    $ ./reinsmodkvm.sh
+    $ cd {{ share_disk_path }}/Cuju/kvm
+    $ sudo ./reinsmodkvm.sh
     ```
 
 * 開啟 Primary VM (用 tmux 防止 ansible 完成後關閉 VM)
@@ -554,14 +691,14 @@ become: yes     # like sudo
       command: "{{ item }}"
       with_items:
         - tmux new-session -d -s cuju -n runvm
-        - tmux send-keys -t cuju:runvm "cd /mnt/nfs/Cuju" Enter
+        - tmux send-keys -t cuju:runvm "cd {{ cuju_script_path }}" Enter
         - tmux send-keys -t cuju:runvm "./runvm.sh" Enter
-      when: ansible_ssh_host == primary_host_ip   # like if
+      when: ansible_ssh_host == primary_host_ip_1G   # like if
     ---
     < script >
     On primary host
     $ sudo tmux new-session -d -s cuju -n runvm
-    $ sudo tmux send-keys -t cuju:runvm "cd /mnt/nfs/Cuju" Enter
+    $ sudo tmux send-keys -t cuju:runvm "cd {{ cuju_script_path }}/Cuju" Enter
     $ sudo tmux send-keys -t cuju:runvm "./runvm.sh" Enter
     ```
 
@@ -582,31 +719,33 @@ become: yes     # like sudo
     - name: copy check_ssh.sh ssh_connet_primaryvm.sh
       copy:
         src: "{{ item }}"
-        dest: /mnt/nfs/Cuju
+        dest: "{{ cuju_script_path }}"
         mode: 0755
       with_items:
-        - ./cuju_sh/check_ssh.sh
-        - ./cuju_sh/ssh_connect_primaryvm.sh
+        - ./files/check_ssh.sh
+        - ./files/ssh_connect_primaryvm.sh
     ---
     < script >
-    $ scp -P 22 ./cuju_sh/check_ssh.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:/mnt/nfs/Cuju/
-    $ scp -P 22 ./cuju_sh/ssh_connect_primaryvm.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:/mnt/nfs/Cuju/
+    *** local ***
+    $ scp -P 22 ./files/check_ssh.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:{{ cuju_script_path }}/Cuju/check_ssh.sh
+    $ scp -P 22 ./files/ssh_connect_primaryvm.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:{{ cuju_script_path }}/Cuju/ssh_connect_primaryvm.sh
 
     ***
     < ansible >
     - name: check primary vm is on
-      command: "./check_ssh.sh {{ guest_ip }} /mnt/nfs/vm1.monitor"
+      command: "./check_ssh.sh {{ guest_ip }} /home/{{ ansible_ssh_user }}/vm1.monitor"
       args:
-        chdir: /mnt/nfs/Cuju
-      register: check_in_primary   # new variable
+        chdir: "{{ cuju_script_path }}"
+      register: check_primary_vm        # new local variable
+      when: ansible_ssh_host == primary_host_ip_1G
 
     - name: if primary vm off, quit this ansible
       fail:       # it will interrupt and return fial message
         msg: primary vm boot unsuccessfully.
-      when: check_in_primary.stdout.find('0') == -1
+      when: hostvars['primary_host']['check_primary_vm'].stdout.find('0') == -1
     ---
     < script >
-    $ cd /mnt/nfs/Cuju
+    $ cd {{ cuju_script_path }}
     $ ./check_ssh.sh [primary_vm_ip] /mnt/nfs/vm1.monitor
     看到這個表示 VM 啟動成功 -> 繼續測試
     ok: [backup_host] => {
@@ -626,13 +765,13 @@ become: yes     # like sudo
       command: "{{ item }}"
       with_items:
         - tmux new-session -d -s cuju -n recv
-        - tmux send-keys -t cuju:recv "cd /mnt/nfs/Cuju" Enter
+        - tmux send-keys -t cuju:recv "cd {{ cuju_script_path }}" Enter
         - tmux send-keys -t cuju:recv "./recv.sh" Enter
-      when: ansible_ssh_host == backup_host_ip
+      when: ansible_ssh_host == backup_host_ip_1G
     ---
     < script >
     $ sudo tmux new-window -d -t cuju -n recv
-    $ sudo tmux send-keys -t cuju:recv "cd /mnt/nfs/Cuju" Enter
+    $ sudo tmux send-keys -t cuju:recv "cd {{ cuju_script_path }}" Enter
     $ sudo tmux send-keys -t cuju:recv "./recv.sh" Enter
 
     ***
@@ -649,12 +788,12 @@ become: yes     # like sudo
     - name: enter FT mode(execute fdmode.sh)
       command: ./ftmode.sh
       args:
-        chdir: /mnt/nfs/Cuju
-      when: ansible_ssh_host == primary_host_ip
+        chdir: "{{ cuju_script_path }}"
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
     $ sudo tmux new-window -d -t cuju -n ftmode
-    $ sudo tmux send-keys -t cuju:ftmode "cd /mnt/nfs/Cuju" Enter
+    $ sudo tmux send-keys -t cuju:ftmode "cd {{ cuju_script_path }}" Enter
     $ sudo tmux send-keys -t cuju:ftmode "./ftmode.sh" Enter
     ```
 
@@ -666,14 +805,15 @@ become: yes     # like sudo
     ```
     < ansible >
     - name: call failover
+      become: yes
       shell: echo "cuju-failover" | nc -w 1 -U vm1r.monitor
       args:
-        chdir: /mnt/nfs
-      when: ansible_ssh_host == backup_host_ip    # like if
+        chdir: "/home/{{ ansible_ssh_user }}"
+      when: ansible_ssh_host == backup_host_ip_1G    # like if
     ---
     < script >
     On backup host
-    $ cd /mnt/nfs
+    $ cd ~
     $ echo "cuju-failover" | sudo nc -w 1 -U vm1r.monitor
     ```
 
@@ -682,7 +822,7 @@ become: yes     # like sudo
     < ansible >
     - name: kill tmux session
       command: tmux kill-session -t cuju
-      when: ansible_ssh_host == primary_host_ip
+      when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
     On primary host
@@ -704,16 +844,16 @@ become: yes     # like sudo
     ```
     < ansible >
     - name: check vm is alive
-      command: "./check_ssh.sh {{ guest_ip }} /mnt/nfs/vm1r.monitor"
+      command: "./check_ssh.sh {{ guest_ip }} /home/{{ ansible_ssh_user }}/vm1r.monitor"
       args:
-        chdir: /mnt/nfs/Cuju
-      register: check_in_backup
-      when: ansible_ssh_host == backup_host_ip
+        chdir: "{{ cuju_script_path }}"
+      register: check_backup_vm
+      when: ansible_ssh_host == backup_host_ip_1G
     ---
     < script >
     On backup host
-    $ cd /mnt/nfs/Cuju
-    $ ./check_ssh.sh [primary_vm_ip] /mnt/nfs/vm1.monitor
+    $ cd {{ cuju_script_path }}
+    $ ./check_ssh.sh [primary_vm_ip] ~/vm1.monitor
     看到這個表示 ftmode 啟動成功 -> 繼續執行將 VM 關機
     ok: [backup_host] => {
       "msg": "Primary VM running result: 0"
@@ -730,26 +870,26 @@ become: yes     # like sudo
     < ansible >
     - name: copy poweroff_vm.sh
       copy:
-        src: ./cuju_sh/poweroff_vm.sh
-        dest: /mnt/nfs/Cuju
+        src: ./files/poweroff_vm.sh
+        dest: "{{ cuju_script_path }}"
         mode: 0755
-      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1   # 確認 ftmode 成功
+      when: ansible_ssh_host == backup_host_ip_1G and check_backup_vm.stdout.find('0') != -1   # 確認 ftmode 成功
     ---
     < script >
     On local host
-    $ scp -P 22 ./cuju_sh/poweroff_vm.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:/mnt/nfs/Cuju/
+    $ scp -P 22 ./cuju_sh/poweroff_vm.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:{{ cuju_script_path }}
 
     ***
     < ansible>
     - name: poweroff vm
       command: "./poweroff_vm.sh {{ guest_ip }}"
       args:
-        chdir: /mnt/nfs/Cuju
-      when: ansible_ssh_host == backup_host_ip and check_in_backup.stdout.find('0') != -1   # 確認 ftmode 成功
+        chdir: "{{ cuju_script_path }}"
+      when: ansible_ssh_host == backup_host_ip_1G and check_backup_vm.stdout.find('0') != -1   # 確認 ftmode 成功
     ---
     < script >
     On backup host
-    $ cd /mnt/nfs/Cuju
+    $ cd {{ cuju_script_path }}
     $ ./poweroff_vm.sh {{ guest_ip }}
     ```
 
@@ -769,7 +909,7 @@ become: yes     # like sudo
     < ansible >
     - name: kill tmux session
       command: tmux kill-session -t cuju
-      when: ansible_ssh_host == backup_host_ip
+      when: ansible_ssh_host == backup_host_ip_1G
     ---
     < script >
     On backup host
@@ -779,15 +919,15 @@ become: yes     # like sudo
 * 顯示檢測結果
     ```
     < ansible >
-    - name: if primary vm off, quit this ansible
-      fail:       # it will interrupt and return fial message
-        msg: primary vm boot unsuccessfully.
-      when: check_in_primary.stdout.find('0') == -1
+    - name: if Cuju ftmode unsuccessfully,show this
+      fail:
+        msg: Cuju ftmode unsuccessfully.
+      when: hostvars['backup_host']['check_backup_vm'].stdout.find('0') == -1
     
     - name: show the vm state
       debug:
-        msg: "{{ check_in_backup.stdout }}"
-      when: ansible_ssh_host == backup_host_ip
+        msg: "{{ check_backup_vm.stdout }}"
+      when: hostvars['backup_host']['check_backup_vm'].stdout.find('0') != -1
     ---
     看到這個表示 ftmode 成功:
     ok: [backup_host] => {
@@ -797,9 +937,3 @@ become: yes     # like sudo
     看到這個表示 ftmode 失敗:
     fatal: [backup_host]: FAILED! => {"changed": false, "msg": "Cuju ftmode unsuccessfully."}
     ```
-
-If you successfully start Cuju, you will see the following message show on Primary Host(terminal-A):
-![](https://i.imgur.com/nUdwKkB.jpg)
-
-If you want to test failover You can kill or ctrl-c VM on the Primary Host, and you will see the following message show on Backup Host(terminal-C):
-![](https://i.imgur.com/JWIhtDz.png)

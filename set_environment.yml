@@ -1,0 +1,86 @@
+- name: set enviroment
+  hosts: cuju
+  become: yes       # like sudo
+  tasks:
+    - name: "let {{ ansible_ssh_user }} sudo without password on Ubuntu"      
+      lineinfile:       # add a line to a file if it does not exist, after validate.
+        path: /etc/sudoers
+        line: '{{ ansible_ssh_user }} ALL=(ALL) NOPASSWD: ALL'
+        validate: '/usr/sbin/visudo -cf %s'
+
+    - name: install image and headers of linux 4.15.0-29-generic
+      apt:        # like apt-get
+        pkg:
+          - linux-image-4.15.0-29-generic
+          - linux-headers-4.15.0-29-generic
+        update_cache: yes       # like apt-get update
+
+    - name: update GRUB_DEFAULT
+      lineinfile:       # this module will search a file for a line, and ensure that it is present or absent. And this is primarily useful when you want to change a single line in a file only.
+        path: /etc/default/grub
+        regexp: '^GRUB_DEFAULT='
+        line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux 4.15.0-29-generic"'
+        owner: root
+        group: root
+        mode: 0755
+
+    - name: update grub
+      command: update-grub        # like type command on shell
+
+    - name: install cuju required package
+      apt:
+        pkg:
+         - vim
+         - gcc
+         - make
+         - gdb
+         - fakeroot
+         - build-essential
+         - kernel-package
+         - libncurses5
+         - libncurses5-dev
+         - zlib1g-dev
+         - libglib2.0-dev
+         - qemu
+         - xorg
+         - bridge-utils
+         - openvpn
+         - libelf-dev
+         - libssl-dev
+         - libpixman-1-dev
+         - nfs-common
+         - git
+         - tigervnc-viewer
+         - expect
+        update_cache: yes
+
+    - name: backup old network config
+      copy:
+        src: /etc/netplan/50-cloud-init.yaml
+        dest: /etc/netplan/50-cloud-init.yaml.backup
+        remote_src: yes
+
+    - name: copy network.py
+      copy:
+        src: ./files/reset_network_with_bridge.py
+        dest: /etc/netplan/reset_network_with_bridge.py
+        mode: '0744'
+
+    - name: change network config
+      command: "python reset_network_with_bridge.py {{ bridge_nic }} {{ ansible_ssh_host[ansible_ssh_host|length-1] }}"
+      args:
+        chdir: /etc/netplan
+
+    - name: set /etc/hostname
+      become: yes
+      replace:
+        path: /etc/hostname
+        regexp: "^(.+)$"
+        replace: "{{ cuju_machine_name }}"
+
+    - name: reboot
+      reboot:       # reboot the node and wait 30s, then try to connection with the node. If not successful in 5s, break and try again. If still fail after 600s, return fail.
+        connect_timeout: 5
+        reboot_timeout: 600
+        pre_reboot_delay: 0
+        post_reboot_delay: 30

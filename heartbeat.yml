@@ -1,0 +1,46 @@
+- name: heartbeat
+  hosts: cuju
+  tasks:
+    - name: git clone pacescript
+      git:
+        repo: https://github.com/kester-lin/heartbeat_script.git
+        dest: "{{ share_disk_path }}/pacescript"
+        version: ubuntu1804
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: change ip in corosync.conf
+      replace: 
+        path: "{{ share_disk_path }}/pacescript/corosync.conf"
+        regexp: "{{ item.regex }}"
+        replace: "{{ item.replace }}"
+      with_items:
+        - { regex: "192.168.125.0", replace: "{{ bind_network }}"}
+        - { regex: "192.168.125.210", replace: "{{ primary_host_ip_1G }}"}
+        - { regex: "192.168.125.211", replace: "{{ backup_host_ip_1G }}"}
+      when: ansible_ssh_host == primary_host_ip_1G
+      
+    - name: change enviroment.sh
+      replace:
+        path: "{{ share_disk_path }}/pacescript/environment.sh"
+        regexp: "{{ item.regex }}"
+        replace: "{{ item.replace }}"
+      with_items:
+        - { regex: "^primary_name=.*$", replace: "primary_name={{ primary_host_user_name }}"}
+        - { regex: "^backup_name=.*$", replace: "backup_name={{ backup_host_user_name }}"}
+        - { regex: "^external_ip=.*$", replace: "external_ip={{ external_ip }}"}
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: set /etc/hosts
+      become: yes
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+      with_items:
+        - "{{ primary_host_ip_1G }} {{ primary_host_cuju_machine_name }}"
+        - "{{ backup_host_ip_1G }} {{ backup_host_cuju_machine_name }}"
+
+    - name: install
+      become: yes
+      command: ./install.sh
+      args:
+        chdir: "{{ share_disk_path }}/pacescript"

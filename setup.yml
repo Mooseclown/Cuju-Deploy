@@ -1,0 +1,27 @@
+- name: check some variable in inventory
+  include: check_variable.yml
+
+- name: start_setup
+  include: set_environment.yml
+
+- name: use gluster
+  include: gluster.yml
+  when: share_disk == "gluster"
+
+- name: use nfs
+  include: nfs.yml
+  when: share_disk == "nfs"
+
+- name: use heartbeat
+  include: heartbeat.yml
+  when: use_heartbeat == "yes"
+
+- name: download_cuju
+  include: download_cuju.yml
+
+- name: set vm network
+  include: set_vm_network.yml
+
+- name: check cuju can use
+  include: check_cuju.yml
+

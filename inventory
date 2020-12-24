@@ -1,15 +1,36 @@
 [cuju:vars]
-primary_host_ip = 192.168.77.151
+# choose type of share disk:
+share_disk = "gluster"        # please input 'gluster' or 'nfs'
+use_heartbeat = "yes"       # please input 'yes' or 'no'
+
+# primary host information
+primary_host_ip_1G = 192.168.77.151
+primary_host_ip_10G = 192.168.123.100
 primary_host_user_name = cuju
 primary_host_password = cujuft
-primary_host_nic = ens3
-primary_host_Ubuntu_version = 18
-backup_host_ip = 192.168.77.153
+primary_host_gluster_machine_name = FTGlusterFS1
+primary_host_cuju_machine_name = cujuft-machine1
+primary_host_bridge_nic_1G = ens3
+primary_free_disk = /dev/vdb
+
+# backup host information
+backup_host_ip_1G = 192.168.77.153
+backup_host_ip_10G = 192.168.123.101
 backup_host_user_name = cuju
 backup_host_password = cujuft
-backup_host_nic = ens3
-backup_host_Ubuntu_version = 18
+backup_host_gluster_machine_name = FTGlusterFS2
+backup_host_cuju_machine_name = cujuft-machine2
+backup_host_bridge_nic_1G = ens3
+backup_free_disk = /dev/vdb
+
+# if share_disk is nfs
 local_host_ip = 192.168.77.155
+nfs_folder_path = "/home/[user_name]/cuju_nfsfolder"    # modify [user_name] to your local user name
+
+# if use_heart_beat is yes
+bind_network = "192.168.77.0"     # primary and backup host ip network
+external_ip = "192.168.77.155"    # to check network is health
+
 # the vm network config
 guest_ip = 192.168.77.152
 guset_netmask = 255.255.255.0
@@ -17,8 +38,29 @@ guest_network = 192.168.77.0
 guest_broadcast = 192.168.77.255
 guest_gateway = 192.168.77.7
 guest_dns_nameservers = 140.96.254.98 8.8.8.8
-nfs_folder_path = "/home/[user_name]/cuju_nfsfolder"    # modify [user_name] to your local user name
 
-[cuju]
-primary_host ansible_ssh_host="{{ primary_host_ip }}" ansible_connection=ssh ansible_ssh_user="{{ primary_host_user_name }}" ansible_ssh_pass="{{ primary_host_password }}" ansible_sudo_pass="{{ primary_host_password }}" Ubuntu_version="{{ primary_host_Ubuntu_version }}"
-backup_host ansible_ssh_host="{{ backup_host_ip }}" ansible_connection=ssh ansible_ssh_user="{{ backup_host_user_name }}" ansible_ssh_pass="{{ backup_host_password }}" ansible_sudo_pass="{{ backup_host_password }}" Ubuntu_version="{{ backup_host_Ubuntu_version }}"
+share_disk_path = /mnt/nfs
+
+[cuju:children]
+primary
+backup
+
+[primary:vars]
+gluster_machine_name = "{{ primary_host_gluster_machine_name }}"
+cuju_machine_name = "{{ primary_host_cuju_machine_name }}"
+bridge_nic = "{{ primary_host_bridge_nic_1G }}"
+free_disk = "{{ primary_free_disk }}"
+cuju_script_path = "/home/{{ primary_host_user_name }}/cuju_script"
+
+[primary]
+primary_host ansible_ssh_host="{{ primary_host_ip_1G }}" ansible_connection=ssh ansible_ssh_user="{{ primary_host_user_name }}" ansible_ssh_pass="{{ primary_host_password }}" ansible_sudo_pass="{{ primary_host_password }}"
+
+[backup:vars]
+gluster_machine_name = "{{ backup_host_gluster_machine_name }}"
+cuju_machine_name = "{{ backup_host_cuju_machine_name }}"
+bridge_nic = "{{ backup_host_bridge_nic_1G }}"
+free_disk = "{{ backup_free_disk }}"
+cuju_script_path = "/home/{{ backup_host_user_name }}/cuju_script"
+
+[backup]
+backup_host ansible_ssh_host="{{ backup_host_ip_1G }}" ansible_connection=ssh ansible_ssh_user="{{ backup_host_user_name }}" ansible_ssh_pass="{{ backup_host_password }}" ansible_sudo_pass="{{ backup_host_password }}"

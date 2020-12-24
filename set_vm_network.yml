@@ -1,40 +1,35 @@
 - name: mount guset raw image
   hosts: primary_host
+  become: yes
   tasks:
 
     - name: install kpartx
-      become: yes
       apt:
         pkg:
          - kpartx
         update_cache: yes
 
-    - name: creat /mnt/vm
-      become: yes
+    - name: creat directory /mnt/vm
       file:       # creat a directory with path and access permissions is 755
         path: /mnt/vm
         state: directory
         mode: 0755
 
     - name: lookup whick /dev/loop can use
-      become: yes
       command: losetup -f
       register: dev_loop
 
     - name: add to loop and partation
-      become: yes
       command: "{{ item }}"
       with_items:
-        - losetup -f /mnt/nfs/Ubuntu20G-1604.img 
+        - "losetup -f {{ share_disk_path }}/Ubuntu20G-1604.img"
         - "kpartx -a {{ dev_loop['stdout'] }}"
     
     - name: find partation map
-      become: yes
       command: "kpartx -l {{ dev_loop['stdout'] }}"
       register: loop_part
 
     - name: mount
-      become: yes
       command: "mount /dev/mapper/{{ loop_part['stdout'].split(' ')[0] }} /mnt/vm"
 
 - name: change guest network
@@ -42,37 +37,37 @@
   become: yes
   tasks:
 
-    - name: address
+    - name: change address
       lineinfile:
         path: /mnt/vm/etc/network/interfaces
         regexp: '^address.*'
         line: "address {{ guest_ip }}"
 
-    - name: netmask
+    - name: change netmask
       lineinfile:
         path: /mnt/vm/etc/network/interfaces
         regexp: '^netmask.*'
         line: "netmask {{ guset_netmask }}"
 
-    - name: network
+    - name: change network
       lineinfile:
         path: /mnt/vm/etc/network/interfaces
         regexp: '^network.*'
         line: "network {{ guest_network }}"
 
-    - name: broadcast
+    - name: change broadcast
       lineinfile:
         path: /mnt/vm/etc/network/interfaces
         regexp: '^broadcast.*'
         line: "broadcast {{ guest_broadcast }}"
 
-    - name: gateway
+    - name: change gateway
       lineinfile:
         path: /mnt/vm/etc/network/interfaces
         regexp: '^gateway.*'
         line: "gateway {{ guest_gateway }}"
 
-    - name: dns-nameservers
+    - name: change dns-nameservers
       lineinfile:
         path: /mnt/vm/etc/network/interfaces
         regexp: '^dns-nameservers.*'
@@ -84,14 +79,19 @@
   tasks:
 
     - name: unmount /mnt/vm
+      mount:
+        path: /mnt/vm
+        state: unmounted
+
+    - name: remove /mnt/vm
+      file:
+        path: /mnt/vm
+        state: absent
+
+    - name: delete device loop
       command: "{{ item }}"
       with_items:
-        - umount /mnt/vm
         - sync
         - "kpartx -d {{ dev_loop['stdout'] }}"
         - sync
         - "losetup -d {{ dev_loop['stdout'] }}"
-        - sync
-        - rm -r /mnt/vm
-
-    

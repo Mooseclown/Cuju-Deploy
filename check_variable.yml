@@ -1,0 +1,12 @@
+- name: check variable in inventory
+  hosts: cuju
+  tasks:
+    - name: check type of share disk
+      fail:
+        msg: Please input 'gluster' or 'nfs' followed the share_disk_type in inventory
+      when: share_disk != "gluster" and share_disk != "nfs"
+
+    - name: check use_heartbeat
+      fail:
+        msg: Please input 'yes' or 'no' followed the use_heartbeat in inventory
+      when: use_heartbeat != "yes" and use_heartbeat != "no"

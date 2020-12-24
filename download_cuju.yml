@@ -1,0 +1,68 @@
+- name: download and make cuju
+  hosts: cuju
+  tasks:    
+    - name: creat cuju script folder
+      file:
+        path: "{{ cuju_script_path }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: 0755
+
+    - name: clone cuju
+      git:
+        repo: https://github.com/Cuju-ft/Cuju.git
+        dest: "{{ share_disk_path }}/Cuju"
+        version: support/kernel4.15
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: Cuju make
+      command: "{{ item }}"       # execute command in order.
+      with_items:           # loop to do
+        - ./configure --enable-cuju --enable-kvm --disable-pie --target-list=x86_64-softmmu
+        - make clean
+        - make -j8
+      args:
+        chdir: "{{ share_disk_path }}/Cuju"        # path
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: KVM make
+      command: "{{ item }}"
+      with_items:
+        - ./configure
+        - make clean
+        - make -j8
+        - sudo ./reinsmodkvm.sh
+      args:
+        chdir: "{{ share_disk_path }}/Cuju/kvm"
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: copy runvm.sh, recv.sh, ftmode.sh
+      template:         # the copy module copies a file from the local or remote machine to a location on the remote machine.
+        src: "./templates/{{ item }}.j2"
+        dest: "{{ cuju_script_path }}/{{ item }}"
+        mode: 0755
+      with_items:
+        - runvm.sh
+        - recv.sh
+        - ftmode.sh
+
+    - name: download gdown.pl (download Ubuntu20G-1604.img)
+      get_url:        # downloads files from HTTP, HTTPS, or FTP to the remote server. The remote server must have direct access to the remote resource.
+        url: https://raw.githubusercontent.com/circulosmeos/gdown.pl/master/gdown.pl
+        dest: "{{ share_disk_path }}"
+        mode: 0775
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: download Ubuntu20G-1604.tar.gz (download Ubuntu20G-1604.img)
+      command: ./gdown.pl https://drive.google.com/file/d/0B9au9R9FzSWKNjZpWUNlNDZLcEU/view Ubuntu20G-1604.tar.gz
+      args:
+        chdir: "{{ share_disk_path }}"
+      when: ansible_ssh_host == primary_host_ip_1G
+
+    - name: unzip Ubuntu20G-1604.tar.gz (download Ubuntu20G-1604.img)
+      unarchive:        # this module unpacks an archive. It will not unpack a compressed file that does not contain an archive.
+        src: "{{ share_disk_path }}/Ubuntu20G-1604.tar.gz"
+        dest: "{{ share_disk_path }}"
+        remote_src: yes
+      when: ansible_ssh_host == primary_host_ip_1G
