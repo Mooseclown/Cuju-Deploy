@@ -63,7 +63,8 @@
     backup_free_disk = /dev/vdb
 
     # if share_disk is nfs
-    local_host_ip = 192.168.77.155
+    nfs_server_ip = 192.168.77.155
+    nfs_server_machine_name = cuju_nfs_server
     nfs_folder_path = "/home/[user_name]/cuju_nfsfolder"    # modify [user_name] to your local user name
 
     # if use_heart_beat is yes
@@ -129,6 +130,7 @@
 
 * Ubuntu-16.04 VM image file will be download, and the `account/password` is `root/root`
 
+
 ##### 以下所有的 module 都可以用 `ansible-doc -s $module_name` 查詢如何使用
 ex: `ansible-doc -s lineinfile` or `ansible-doc -s apt`
 
@@ -137,7 +139,7 @@ set_environment.yml
 hosts: cuju (primary host and backup host)
 become: yes     # like sudo
 
-## set enviroment
+#### set enviroment
 * 讓 sudo 不用輸入密碼(在 /etc/sudoer 新增 [your username] ALL=(ALL) NOPASSWD: ALL)
     ```
     < ansible >
@@ -310,11 +312,31 @@ become: yes     # like sudo
     ###### reference:
     reboot: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/reboot_module.html
 
+
 nfs.yml
 ---
 hosts: cuju (primary host and backup host)
 
-## mount with nfs
+#### mount with nfs
+* 設定 cuju hosts
+    ```
+    < ansible >
+    - name: set /etc/hosts
+      become: yes
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ nfs_server_ip }} {{ nfs_server_machine_name }}"
+        insertbefore: '^\n'
+        firstmatch: yes
+    ---
+    < script >
+    $ sudo vim /etc/hosts
+        {{ nfs_server_ip }} {{ nfs_server_machine_name }}
+    ```
+    ###### reference:
+    lineinfile: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html
+
+
 * 建立 nfs 要 mount 的資料夾
     ```
     < ansible >
@@ -329,7 +351,7 @@ hosts: cuju (primary host and backup host)
     ---
     < script >
     $ sudo mkdir {{ share_disk_path }}
-    $ sudo chown -R {{ share_disk_path }}:{{ share_disk_path }} {{ share_disk_path }}
+    $ sudo chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} {{ share_disk_path }}
     ```
     ###### reference:
     file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
@@ -341,22 +363,363 @@ hosts: cuju (primary host and backup host)
       become: yes
       mount:
         path: "{{ share_disk_path }}"
-        src: "{{ local_host_ip }}:{{ nfs_folder_path }}"
+        src: "{{ nfs_server_machine_name }}:{{ nfs_folder_path }}"
         fstype: nfs
         state: mounted
     ---
     < script >
-    $ sudo mount -t nfs {{ local_host_ip }}:{{ nfs_folder_path }} {{ share_disk_path }}
+    $ sudo mount -t nfs {{ nfs_server_machine_name }}:{{ nfs_folder_path }} {{ share_disk_path }}
     ```
     ###### reference:
     mount: https://docs.ansible.com/ansible/latest/collections/ansible/posix/mount_module.html
+
+
+gluster.yml
+---
+hosts: cuju (primary host and backup host) 
+vars :
+  - gluster_path : /glusterfs
+  - gluster_volume_name : gvol0
+
+#### gluster
+* 安裝 gluster
+    ```
+    < ansible >
+    - name: install gluster
+      become: yes
+      apt:
+        pkg:
+          - glusterfs-server
+        state: latest
+        update-cache: yes
+    ---
+    < script >
+    $ sudo apt upgrade
+    $ sudo apt update
+    $ sudo apt install gluster
+    ```
+    ###### reference:
+    apt: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_module.html
+
+* 建立 gluster mount 的資料夾
+    ```
+    < ansible >
+    - name: creat gluster folder
+      become: yes
+      file:
+        path: "{{ gluster_path }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: "0755"
+    ---
+    < script >
+    $ sudo mkdir {{ gluster_path }}
+    $ sudo chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} {{ gluster_path }}
+    ```
+    ###### reference:
+    file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
+
+* 格式化硬碟
+    ```
+    < ansible >
+    - name: create a ext4 filesystem on free disk
+      become: yes
+      community.general.filesystem:
+        fstype: ext4
+        dev: "{{ free_disk }}"
+    ---
+    < script >
+    $ sudo mkfs -t ext4 {{ free_disk }}
+    ```
+    ###### reference:
+    community.general.filesystem: https://docs.ansible.com/ansible/latest/collections/community/general/filesystem_module.html
+
+* mount 硬碟至指定資料夾
+    ```
+    < ansible >
+    - name: mount gluster
+      become: yes
+      mount:
+        path: "{{ gluster_path }}"
+        src: "{{ free_disk }}"
+        fstype: ext4
+        state: mounted
+    ---
+    < script >
+    $ sudo mount -t ext4 {{ free_disk }} {{ gluster_path }}
+    ```
+    ###### reference:
+    mount: https://docs.ansible.com/ansible/latest/collections/ansible/posix/mount_module.html
+
+* 設定 cuju hosts
+    ```
+    < ansible >
+    - name: set /etc/hosts
+      become: yes
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+        insertbefore: '^\n'
+        firstmatch: yes
+      with_items:
+        - "{{ primary_host_ip_10G }} {{ primary_host_gluster_machine_name }}"
+        - "{{ backup_host_ip_10G }} {{ backup_host_gluster_machine_name }}"
+    ---
+    < script >
+    $ sudo vim /etc/hosts
+        {{ primary_host_ip_10G }} {{ primary_host_gluster_machine_name }}
+        {{ backup_host_ip_10G }} {{ backup_host_gluster_machine_name }}
+    ```
+    ###### reference:
+    lineinfile: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html
+
+* start gluster service
+    ```
+    < ansible >
+    - name: start gluster
+      become: yes
+      command: "{{ item }}"
+      with_items:
+        - systemctl start glusterd.service
+        - systemctl enable glusterd.service
+        - systemctl status glusterd.service
+    ---
+    < script >
+    $ sudo systemctl start glusterd.service
+    $ sudo systemctl enable glusterd.service
+    $ sudo systemctl status glusterd.service
+    ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+
+* 建立 gluster peer
+    ```
+    < ansible >
+    - name: gluster peer
+      become: yes
+      gluster.gluster.gluster_peer:
+        state: present
+        nodes:
+          - "{{ primary_host_gluster_machine_name }}"
+          - "{{ backup_host_gluster_machine_name }}"
+      when: ansible_ssh_host == primary_host_ip_1G
+    ---
+    < script >
+    *** primary ***
+    $ sudo gluster peer probe {{ backup_host_gluster_machine_name }}
+    > peer probe success.
+    ```
+    ###### reference:
+    gluster.gluster.gluster_peer: https://docs.ansible.com/ansible/latest/collections/gluster/gluster/gluster_peer_module.html
+
+* 配置 gluster volume
+    ```
+    < ansible >
+    - name: creat gluster volume folder
+      become: yes
+      file:
+        path: "{{ gluster_path }}/{{ gluster_volume_name }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: "0755"
+    ---
+    < script >
+    $ sudo mkdir {{ gluster_path }}/{{ gluster_volume_name }}
+    $ sudo chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} {{ gluster_path }}/{{ gluster_volume_name }}
+    
+    ***
+    < ansible >
+    - name: set gluster volume
+      become: yes
+      gluster.gluster.gluster_volume:
+        state: present
+        name: "{{ gluster_volume_name }}"
+        bricks: "{{ gluster_path }}/{{ gluster_volume_name }}"
+        cluster:
+          - "{{ primary_host_gluster_machine_name }}"
+          - "{{ backup_host_gluster_machine_name }}"
+        replicas: 2
+      when: ansible_ssh_host == primary_host_ip_1G
+    ---
+    < script >
+    *** primary ***
+    $ sudo gluster volume create {{ gluster_volume_name }} replica 2 {{ primary_host_gluster_machine_name }}:{{ gluster_path }}/{{ gluster_volume_name }} {{ backup_host_gluster_machine_name }}:{{ gluster_path }}/{{ gluster_volume_name }}
+    $ sudo gluster volume start {{ gluster_volume_name }}
+    ```
+    ###### reference:
+    file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
+    gluster.gluster.gluster_volume: https://docs.ansible.com/ansible/latest/collections/gluster/gluster/gluster_volume_module.html
+
+* 掛載 share disk
+    ```
+    < ansible >
+    - name: creat share disk directory
+      become: yes
+      file:
+        path: "{{ share_disk_path }}"
+        state: directory
+        owner: "{{ ansible_ssh_user }}"
+        group: "{{ ansible_ssh_user }}"
+        mode: "0755"
+    ---
+    < script >
+    $ sudo mkdir {{ share_disk_path }}
+    $ sudo chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} {{ share_disk_path }}
+
+    ***
+    < ansible >
+    - name: mount gluster volume to share disk directory
+      become: yes
+      mount:
+        path: "{{ share_disk_path }}"
+        src: "{{ gluster_machine_name }}:/{{ gluster_volume_name }}"
+        fstype: glusterfs
+        opts: defaults,_netdev,noauto,x-systemd.automount
+        state: mounted
+    ---
+    < script >
+    $ sudo mount -t glusterfs {{ gluster_machine_name }}:/{{ gluster_volume_name }} {{ share_disk_path }}
+    $ sudo vim /etc/fstab
+        {{ gluster_machine_name }}:/{{ gluster_volume_name }} {{ share_disk_path }} glusterfs defaults,_netdev,noauto,x-systemd.automount 0 0
+    ```
+    ###### reference:
+    file: file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
+    mount: mount: https://docs.ansible.com/ansible/latest/collections/ansible/posix/mount_module.html
+
+* 設定 gluster timeout
+    ```
+    < ansible >
+    - name: set gluster timeout
+      become: yes
+      command: "gluster volume set {{ gluster_volume_name }} network.ping-timeout 1"
+      when: ansible_ssh_host == primary_host_ip_1G
+    ---
+    < script >
+    *** primary ***
+    $ sudo gluster volume set {{ gluster_volume_name }} network.ping-timeout 1
+    ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+
+
+heartbeat.yml
+---
+hosts: cuju (primary host and backup host)
+
+#### heartbeat
+* git clone pacescript
+    ```
+    < ansible >
+    - name: git clone pacescript
+      git:
+        repo: https://github.com/kester-lin/heartbeat_script.git
+        dest: "{{ share_disk_path }}/pacescript"
+        version: ubuntu1804
+      when: ansible_ssh_host == primary_host_ip_1G
+    ---
+    < script >
+    *** primary ***
+    $ cd {{ share_disk_path }}
+    $ mv heartbeat_script pacescript
+    $ cd pacescript
+    $ git checkout ubuntu1804
+    ```
+    ###### reference:
+    git: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/git_module.html
+
+* 更改 heartbeat 配置
+    ```
+    < ansible >
+    - name: change ip in corosync.conf
+      replace: 
+        path: "{{ share_disk_path }}/pacescript/corosync.conf"
+        regexp: "{{ item.regex }}"
+        replace: "{{ item.replace }}"
+      with_items:
+        - { regex: "192.168.125.0", replace: "{{ bind_network }}"}
+        - { regex: "192.168.125.210", replace: "{{ primary_host_ip_1G }}"}
+        - { regex: "192.168.125.211", replace: "{{ backup_host_ip_1G }}"}
+      when: ansible_ssh_host == primary_host_ip_1G
+    ---
+    < script >
+    *** primary ***
+    $ vim corosync.conf
+        bindnetaddr: 192.168.125.0 -> bindnetaddr: {{ bind_network }}
+        ring0_addr: 192.168.125.210 -> ring0_addr: {{ primary_host_ip_1G }}
+        ring0_addr: 192.168.125.211 -> ring0_addr: {{ backup_host_ip_1G }}
+
+    ***
+    < ansible >
+    - name: change environment.sh
+      replace:
+        path: "{{ share_disk_path }}/pacescript/environment.sh"
+        regexp: "{{ item.regex }}"
+        replace: "{{ item.replace }}"
+      with_items:
+        - { regex: "^primary_name=.*$", replace: "primary_name={{ primary_host_user_name }}"}
+        - { regex: "^backup_name=.*$", replace: "backup_name={{ backup_host_user_name }}"}
+        - { regex: "^primary_host=.*$", replace: "primary_host={{ primary_host_cuju_machine_name }}"}
+        - { regex: "^backup_host=.*$", replace: "backup_host={{ backup_host_cuju_machine_name }}"}
+        - { regex: "^external_ip=.*$", replace: "external_ip={{ external_ip }}"}
+      when: ansible_ssh_host == primary_host_ip_1G
+    ---
+    < script >
+    *** primary ***
+    $ sudo vim environment.sh
+        primary_name=cujuft -> primary_name={{ primary_host_user_name }}
+        backup_name=cujuft -> backup_name={{ backup_host_user_name }}
+        primary_host=cujuft-machine1 -> primary_host={{ primary_host_cuju_machine_name }}
+        backup_host=cujuft-machine2 -> backup_host={{ backup_host_cuju_machine_name }}
+        external_ip=192.168.125.237 -> external_ip={{ external_ip }}
+    ```
+    ###### reference:
+    replace: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/replace_module.html
+
+* 設定 cuju hosts
+    ```
+    < ansible >
+    - name: set /etc/hosts
+      become: yes
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+        insertbefore: '^\n'
+        firstmatch: yes
+      with_items:
+        - "{{ primary_host_ip_1G }} {{ primary_host_cuju_machine_name }}"
+        - "{{ backup_host_ip_1G }} {{ backup_host_cuju_machine_name }}"
+    ---
+    < script >
+    $ sudo vim /etc/hosts
+        {{ primary_host_ip_1G }} {{ primary_host_cuju_machine_name }}
+        {{ backup_host_ip_1G }} {{ backup_host_cuju_machine_name }}
+    ```
+    ###### reference:
+    lineinfile: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html
+
+* 安裝 auto script
+    ```
+    < ansible >
+    - name: install auto script
+      become: yes
+      command: ./install.sh
+      args:
+        chdir: "{{ share_disk_path }}/pacescript"
+    ---
+    < script >
+    $ ./install.sh
+    ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 
 download_cuju.yml
 ---
 hosts: cuju (primary host and backup host)
 
-## download and make cuju
+#### download and make cuju
 * 建立 cuju script 的資料夾
     ```
     < ansible >
@@ -385,6 +748,7 @@ hosts: cuju (primary host and backup host)
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
+    *** primary ***
     $ cd {{ share_disk_path }}
     $ git clone https://github.com/Cuju-ft/Cuju.git
     $ git checkout support/kernel4.15
@@ -406,6 +770,7 @@ hosts: cuju (primary host and backup host)
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
+    *** primary ***
     $ cd {{ share_disk_path }}/Cuju
     $ ./configure --enable-cuju --enable-kvm --disable-pie --target-list=x86_64-softmmu
     $ make clean
@@ -429,7 +794,8 @@ hosts: cuju (primary host and backup host)
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
-    $ cd /mnt/nfs/Cuju/kvm
+    *** primary ***
+    $ cd {{ share_disk_path }}/Cuju/kvm
     $ ./configure
     $ make clean
     $ make -j8
@@ -477,6 +843,7 @@ hosts: cuju (primary host and backup host)
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
+    *** primary ***
     $ cd {{ share_disk_path }}
     $ wget -nc https://raw.githubusercontent.com/circulosmeos/gdown.pl/master/gdown.pl
     $ chmod +x gdown.pl
@@ -490,6 +857,7 @@ hosts: cuju (primary host and backup host)
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
+    *** primary ***
     $ ./gdown.pl https://drive.google.com/file/d/0B9au9R9FzSWKNjZpWUNlNDZLcEU/view Ubuntu20G-1604.tar.gz
 
     ***
@@ -502,6 +870,7 @@ hosts: cuju (primary host and backup host)
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
+    *** primary ***
     $ tar zxvf Ubuntu20G-1604.tar.gz
     ```
     ###### reference:
@@ -509,12 +878,13 @@ hosts: cuju (primary host and backup host)
     command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
     unarchive: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/unarchive_module.html
 
+
 set_vm_network.yml
 ---
 hosts: primary_host (only primary host)
 become: yes     # like sudo
 
-## mount guset raw image
+#### mount guset raw image
 * 下載並安裝 kpartx
     ```
     < ansible >
@@ -577,7 +947,7 @@ become: yes     # like sudo
     ###### reference:
     command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
-## change guest network
+#### change guest network
 hosts: primary_host (only primary host)
 become: yes     # like sudo
 
@@ -629,8 +999,10 @@ become: yes     # like sudo
         gateway {{ guest_gateway }}
         dns-nameservers {{ guest_dns_nameservers }}
     ```
-
-## unmount guest raw image
+    ###### reference:
+    lineinfile: https://docs.ansible.com/ansible/2.4/lineinfile_module.html
+    
+#### unmount guest raw image
 hosts: primary_host (only primary host)
 become: yes     # like sudo
 
@@ -663,13 +1035,18 @@ become: yes     # like sudo
     $ sync
     $ sudo losetup -d /dev/loop6
     ```
+    ###### reference:
+    mount: https://docs.ansible.com/ansible/latest/collections/ansible/posix/mount_module.html
+    file: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/file_module.html
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+
 
 check_cuju.yml
 ---
-# start Cuju
 hosts: cuju (primary host and backup host)
 become: yes     # like sudo
 
+#### start Cuju
 * 換成 Cuju 的 kvm
     ```
     < ansible >
@@ -683,6 +1060,8 @@ become: yes     # like sudo
     $ cd {{ share_disk_path }}/Cuju/kvm
     $ sudo ./reinsmodkvm.sh
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 * 開啟 Primary VM (用 tmux 防止 ansible 完成後關閉 VM)
     ```
@@ -696,11 +1075,13 @@ become: yes     # like sudo
       when: ansible_ssh_host == primary_host_ip_1G   # like if
     ---
     < script >
-    On primary host
+    *** primary ***
     $ sudo tmux new-session -d -s cuju -n runvm
     $ sudo tmux send-keys -t cuju:runvm "cd {{ cuju_script_path }}/Cuju" Enter
     $ sudo tmux send-keys -t cuju:runvm "./runvm.sh" Enter
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 * 留時間給 Primary VM 完成開機
     ```
@@ -712,6 +1093,8 @@ become: yes     # like sudo
     < script >
     $ sleep 40
     ```
+    ###### reference:
+    sleep: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/pause_module.html
 
 * 檢查 Primary VM 是否啟動 (用 ssh 連線測試)
     ```
@@ -745,8 +1128,10 @@ become: yes     # like sudo
       when: hostvars['primary_host']['check_primary_vm'].stdout.find('0') == -1
     ---
     < script >
+    *** primary ***
     $ cd {{ cuju_script_path }}
-    $ ./check_ssh.sh [primary_vm_ip] /mnt/nfs/vm1.monitor
+    $ ./check_ssh.sh [primary_vm_ip] ~/vm1.monitor
+    *** local ***
     看到這個表示 VM 啟動成功 -> 繼續測試
     ok: [backup_host] => {
       "msg": "Primary VM running result: 0"
@@ -757,6 +1142,10 @@ become: yes     # like sudo
       "msg": "Primary VM closed result: $x"   # $x != 0
     }
     ```
+    ###### reference:
+    copy: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/copy_module.html
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+    fail: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/fail_module.html
 
 * 如果開機成功，開啟 Backup VM 並且打入 ftmode (用 tmux 防止 ansible 完成後關閉 VM)
     ```
@@ -770,6 +1159,7 @@ become: yes     # like sudo
       when: ansible_ssh_host == backup_host_ip_1G
     ---
     < script >
+    *** backup ***
     $ sudo tmux new-window -d -t cuju -n recv
     $ sudo tmux send-keys -t cuju:recv "cd {{ cuju_script_path }}" Enter
     $ sudo tmux send-keys -t cuju:recv "./recv.sh" Enter
@@ -792,12 +1182,26 @@ become: yes     # like sudo
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
+    *** primary ***
     $ sudo tmux new-window -d -t cuju -n ftmode
     $ sudo tmux send-keys -t cuju:ftmode "cd {{ cuju_script_path }}" Enter
     $ sudo tmux send-keys -t cuju:ftmode "./ftmode.sh" Enter
+    
+    ***
+    < ansible >
+    - name: wait ft start
+      pause:
+        seconds: 60
+    ---
+    < script >
+    $ sleep 60
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
+    sleep: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/pause_module.html
 
-## check cuju start successfully
+
+#### check cuju start successfully
 hosts: cuju (primary host and backup host)
 become: yes     # like sudo
 
@@ -812,10 +1216,12 @@ become: yes     # like sudo
       when: ansible_ssh_host == backup_host_ip_1G    # like if
     ---
     < script >
-    On backup host
+    *** backup ***
     $ cd ~
     $ echo "cuju-failover" | sudo nc -w 1 -U vm1r.monitor
     ```
+    ###### reference:
+    shell: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html
 
 * 關閉 primary host 開啟 VM 的 tmux
     ```
@@ -825,9 +1231,11 @@ become: yes     # like sudo
       when: ansible_ssh_host == primary_host_ip_1G
     ---
     < script >
-    On primary host
+    *** primary ***
     $ sudo tmux kill-session -t cuju
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 * 休息一下
     ```
@@ -839,6 +1247,8 @@ become: yes     # like sudo
     < script >
     $ sleep 10
     ```
+    ###### reference:
+    sleep: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/pause_module.html
 
 * Backup host 確認 VM 是否存活
     ```
@@ -851,7 +1261,7 @@ become: yes     # like sudo
       when: ansible_ssh_host == backup_host_ip_1G
     ---
     < script >
-    On backup host
+    *** backup ***
     $ cd {{ cuju_script_path }}
     $ ./check_ssh.sh [primary_vm_ip] ~/vm1.monitor
     看到這個表示 ftmode 啟動成功 -> 繼續執行將 VM 關機
@@ -864,6 +1274,8 @@ become: yes     # like sudo
       "msg": "Primary VM closed result: $x"   # $x != 0
     }
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 * Backup host 將 VM 關機
     ```
@@ -876,7 +1288,7 @@ become: yes     # like sudo
       when: ansible_ssh_host == backup_host_ip_1G and check_backup_vm.stdout.find('0') != -1   # 確認 ftmode 成功
     ---
     < script >
-    On local host
+    *** local ***
     $ scp -P 22 ./cuju_sh/poweroff_vm.sh {{ ansible_ssh_user }}@{{ ansible_ssh_host }}:{{ cuju_script_path }}
 
     ***
@@ -888,10 +1300,13 @@ become: yes     # like sudo
       when: ansible_ssh_host == backup_host_ip_1G and check_backup_vm.stdout.find('0') != -1   # 確認 ftmode 成功
     ---
     < script >
-    On backup host
+    *** backup ***
     $ cd {{ cuju_script_path }}
     $ ./poweroff_vm.sh {{ guest_ip }}
     ```
+    ###### reference:
+    copy: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/copy_module.html
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 * 休息一下
     ```
@@ -903,6 +1318,8 @@ become: yes     # like sudo
     < script >
     $ sleep 30
     ```
+    ###### reference:
+    sleep: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/pause_module.html
 
 * 關閉啟動 VM 的 tumx
     ```
@@ -912,9 +1329,11 @@ become: yes     # like sudo
       when: ansible_ssh_host == backup_host_ip_1G
     ---
     < script >
-    On backup host
+    *** backup ***
     $ sudo tmux kill-session -t cuju
     ```
+    ###### reference:
+    command: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/command_module.html
 
 * 顯示檢測結果
     ```
@@ -929,6 +1348,7 @@ become: yes     # like sudo
         msg: "{{ check_backup_vm.stdout }}"
       when: hostvars['backup_host']['check_backup_vm'].stdout.find('0') != -1
     ---
+    *** local ***
     看到這個表示 ftmode 成功:
     ok: [backup_host] => {
       "msg": "Primary VM running result: 0"
@@ -937,3 +1357,6 @@ become: yes     # like sudo
     看到這個表示 ftmode 失敗:
     fatal: [backup_host]: FAILED! => {"changed": false, "msg": "Cuju ftmode unsuccessfully."}
     ```
+    ###### reference:
+    fail: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/fail_module.html
+    debug: https://docs.ansible.com/ansible/latest/collections/ansible/builtin/debug_module.html

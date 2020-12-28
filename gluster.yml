@@ -40,6 +40,8 @@
       lineinfile:
         path: /etc/hosts
         line: "{{ item }}"
+        insertbefore: '^\n'
+        firstmatch: yes
       with_items:
         - "{{ primary_host_ip_10G }} {{ primary_host_gluster_machine_name }}"
         - "{{ backup_host_ip_10G }} {{ backup_host_gluster_machine_name }}"
@@ -70,7 +72,7 @@
         group: "{{ ansible_ssh_user }}"
         mode: "0755"
 
-    - name: set gluster client
+    - name: set gluster volume
       become: yes
       gluster.gluster.gluster_volume:
         state: present

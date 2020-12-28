@@ -1,6 +1,6 @@
 [cuju:vars]
 # choose type of share disk:
-share_disk = "gluster"        # please input 'gluster' or 'nfs'
+share_disk = "nfs"        # please input 'gluster' or 'nfs'
 use_heartbeat = "yes"       # please input 'yes' or 'no'
 
 # primary host information
@@ -24,8 +24,9 @@ backup_host_bridge_nic_1G = ens3
 backup_free_disk = /dev/vdb
 
 # if share_disk is nfs
-local_host_ip = 192.168.77.155
-nfs_folder_path = "/home/[user_name]/cuju_nfsfolder"    # modify [user_name] to your local user name
+nfs_server_ip = 192.168.77.155
+nfs_server_machine_name = cuju_nfs_server
+nfs_folder_path = "/home/[user name]/cuju_nfsfolder"    # modify [user_name] to your local user name
 
 # if use_heart_beat is yes
 bind_network = "192.168.77.0"     # primary and backup host ip network

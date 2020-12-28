@@ -1,6 +1,14 @@
 - name: mount with nfs
   hosts: cuju
   tasks:
+    - name: set /etc/hosts
+      become: yes
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ nfs_server_ip }} {{ nfs_server_machine_name }}"
+        insertbefore: '^\n'
+        firstmatch: yes
+
     - name: creat directory with share disk path
       become: yes
       file:       # creat a directory with path and access permissions is 755
@@ -14,6 +22,11 @@
       become: yes
       mount:
         path: "{{ share_disk_path }}"
-        src: "{{ local_host_ip }}:{{ nfs_folder_path }}"
+        src: "{{ nfs_server_machine_name }}:{{ nfs_folder_path }}"
         fstype: nfs
         state: mounted
+
+    - name: change owner with nfs folder
+      become: yes
+      command: "chown -R {{ ansible_ssh_user }}:{{ ansible_ssh_user }} {{ share_disk_path }}"
+      when: ansible_ssh_host == primary_host_ip_1G

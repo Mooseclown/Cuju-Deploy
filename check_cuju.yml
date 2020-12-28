@@ -57,6 +57,10 @@
       args:
         chdir: "{{ cuju_script_path }}"
       when: ansible_ssh_host == primary_host_ip_1G
+    
+    - name: wait ft start
+      pause:
+        seconds: 60
 
 
 - name: check cuju start successfully
@@ -113,5 +117,5 @@
 
     - name: show the vm state
       debug:
-        msg: "{{ check_backup_vm.stdout }}"
+        msg: "{{ hostvars['backup_host']['check_backup_vm'].stdout }}"
       when: hostvars['backup_host']['check_backup_vm'].stdout.find('0') != -1

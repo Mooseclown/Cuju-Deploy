@@ -19,7 +19,7 @@
         - { regex: "192.168.125.211", replace: "{{ backup_host_ip_1G }}"}
       when: ansible_ssh_host == primary_host_ip_1G
       
-    - name: change enviroment.sh
+    - name: change environment.sh
       replace:
         path: "{{ share_disk_path }}/pacescript/environment.sh"
         regexp: "{{ item.regex }}"
@@ -27,6 +27,8 @@
       with_items:
         - { regex: "^primary_name=.*$", replace: "primary_name={{ primary_host_user_name }}"}
         - { regex: "^backup_name=.*$", replace: "backup_name={{ backup_host_user_name }}"}
+        - { regex: "^primary_host=.*$", replace: "primary_host={{ primary_host_cuju_machine_name }}"}
+        - { regex: "^backup_host=.*$", replace: "backup_host={{ backup_host_cuju_machine_name }}"}
         - { regex: "^external_ip=.*$", replace: "external_ip={{ external_ip }}"}
       when: ansible_ssh_host == primary_host_ip_1G
 
@@ -35,11 +37,13 @@
       lineinfile:
         path: /etc/hosts
         line: "{{ item }}"
+        insertbefore: '^\n'
+        firstmatch: yes
       with_items:
         - "{{ primary_host_ip_1G }} {{ primary_host_cuju_machine_name }}"
         - "{{ backup_host_ip_1G }} {{ backup_host_cuju_machine_name }}"
 
-    - name: install
+    - name: install auto script
       become: yes
       command: ./install.sh
       args:
