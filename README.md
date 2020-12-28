@@ -376,7 +376,7 @@ hosts: cuju (primary host and backup host)
 
 gluster.yml
 ---
-hosts: cuju (primary host and backup host) 
+hosts: cuju (primary host and backup host)  
 vars :
   - gluster_path : /glusterfs
   - gluster_volume_name : gvol0
